@@ -1,0 +1,5 @@
+numpy
+fastapi>=0.110
+uvicorn[standard]>=0.29
+tzdata
+MetaTrader5>=5.0.45; sys_platform == "win32"

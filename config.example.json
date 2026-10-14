@@ -1,0 +1,31 @@
+{
+  "mode": "mock",
+  "host": "127.0.0.1",
+  "port": 8000,
+  "db_path": "prophedge.db",
+  "deviation_points": 30,
+  "prop": {
+    "terminal_path": "C:/MT5/PropFirm/terminal64.exe",
+    "portable": true,
+    "login": 12345678,
+    "password": "",
+    "server": "PropFirm-Server",
+    "symbol": "NAS100",
+    "magic": 260101
+  },
+  "live": {
+    "terminal_path": "C:/MT5/Vantage/terminal64.exe",
+    "portable": true,
+    "login": 87654321,
+    "password": "",
+    "server": "VantageInternational-Live",
+    "symbol": "NAS100",
+    "magic": 260102
+  },
+  "mock": {
+    "start_price": 20000.0,
+    "volatility": 2.0,
+    "prop_balance": 50000.0,
+    "live_balance": 10000.0
+  }
+}

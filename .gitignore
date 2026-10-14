@@ -1,0 +1,17 @@
+# Private Daten: Zugangsdaten, Kontonummern, Trade-Historie
+config.json
+*.db
+*.db.bak
+*.db-journal
+*.sqlite
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor
+.idea/
+.vscode/

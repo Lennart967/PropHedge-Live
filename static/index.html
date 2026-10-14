@@ -1,0 +1,1791 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PropHedge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="/static/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{
+  --bg:#12161C;--panel:#181D25;--hover:#1E2430;--line:#232A35;--line2:#2D3542;
+  --text:#D9DEE5;--dim:#9AA3B0;--muted:#6B7584;
+  --pos:#3FB68B;--neg:#E5656A;--prop:#D9A54A;--live:#6F9BE8;
+  --r:6px;
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--text);font-size:13px;line-height:1.4}
+button,input,select{font:inherit;color:inherit}
+select option{background:var(--panel);color:var(--text)}
+button{cursor:pointer}
+:focus-visible{outline:1px solid var(--live);outline-offset:2px}
+.num,td,dd,input[type=number]{font-variant-numeric:tabular-nums}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.muted{color:var(--muted)}.dim{color:var(--dim)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.dot.p{background:var(--prop)}.dot.l{background:var(--live)}
+
+/* Header */
+header{display:flex;align-items:center;gap:18px;height:44px;padding:0 14px;border-bottom:1px solid var(--line)}
+.brand{font-weight:600;letter-spacing:.02em}
+.brand small{color:var(--prop);font-weight:500;font-size:11px;margin-left:6px;text-transform:uppercase;letter-spacing:.06em}
+#assetSel{background:transparent;border:1px solid var(--line2);border-radius:var(--r);padding:3px 6px;font-weight:600;max-width:220px}
+#assetSel:hover:not(:disabled){border-color:var(--muted)}
+#assetSel:disabled{opacity:.55;cursor:not-allowed}
+.px{display:flex;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums}
+.px b{font-weight:500;font-size:14px}
+.spacer{flex:1}
+.hmeta{font-size:12px;color:var(--muted);display:flex;gap:14px;align-items:center}
+.hmeta .warn{color:var(--neg)}
+#conn::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:middle}
+#conn.ok::before{background:var(--pos)}#conn.err::before{background:var(--neg)}
+#conn.err{color:var(--neg)}
+.panic{background:none;border:1px solid rgba(229,101,106,.5);color:var(--neg);border-radius:var(--r);padding:4px 12px;font-size:12px;font-weight:500}
+.panic:hover{background:rgba(229,101,106,.1)}
+.panic.armed{background:var(--neg);color:#fff;border-color:var(--neg)}
+
+/* Layout */
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.chartWrap{position:sticky;top:0;height:calc(100vh - 45px);min-height:400px;border-right:1px solid var(--line);display:flex;flex-direction:column}
+.tfs{display:flex;gap:2px;padding:6px 10px}
+.tfs button{background:none;border:0;border-radius:4px;padding:2px 8px;color:var(--muted);font-size:12px}
+.tfs button:hover{color:var(--text)}
+.tfs button.on{color:var(--text);background:var(--hover)}
+#chart{flex:1;min-height:0}
+
+aside>section,aside>details{padding:14px 16px;border-bottom:1px solid var(--line)}
+.lbl{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 10px;font-size:11px;font-weight:500;
+  text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.lbl span{text-transform:none;letter-spacing:0;font-size:12px}
+.link{background:none;border:0;padding:0;color:var(--live);font-size:12px}
+
+/* Key-Value-Tabellen */
+.kv{width:100%;border-collapse:collapse}
+.kv th,.kv td{padding:3px 0;font-weight:400;border:0;white-space:nowrap}
+.kv th{text-align:left;color:var(--dim)}
+.kv td{text-align:right}
+.kv thead th{color:var(--muted);font-size:11px;text-align:right;padding-bottom:5px}
+.kv thead th:first-child{text-align:left}
+.kv .strong td{font-weight:500;font-size:14px}
+.kv tbody tr+tr.sep th,.kv tbody tr+tr.sep td{padding-top:7px}
+
+/* Budget */
+.gauge{position:relative;height:6px;margin:4px 0 6px;border-radius:3px;background:var(--line)}
+.gauge .zero{position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--muted)}
+.gauge .band{position:absolute;top:0;bottom:0;border-radius:3px}
+.gauge .open{background:rgba(217,165,74,.45)}
+.gauge .preview{top:-3px;bottom:-3px;border:1px dashed var(--dim);background:transparent;transition:left .15s,width .15s}
+.gauge .mark{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--text);border-radius:1px}
+.gscale{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:10px}
+.bar{height:2px;background:var(--line);border-radius:1px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--pos);width:0}
+
+/* Szenarien */
+.scen{display:grid;gap:6px;margin-top:12px}
+.sc{border:1px solid var(--line);border-radius:var(--r);padding:8px 10px}
+.sc .h{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px}
+.sc .h b{font-weight:500;color:var(--text)}
+.sc .kv td:nth-child(3){width:34%}
+.sc .f{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
+.sc .f .neg{font-weight:500}
+
+/* Neuer Hedge */
+.lots{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.lots div{display:flex;flex-direction:column}
+.lots b{font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.lots small{color:var(--muted);font-size:11px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0}
+.row label{color:var(--dim)}
+input[type=number],input[type=time],input:not([type]){background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:4px 7px}
+input[type=number]{text-align:right}
+.row input{width:96px}
+.meta{font-size:12px;color:var(--muted);margin:2px 0 0}
+.ratios{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:12px 0;text-align:center}
+.ratios div{background:var(--panel);border-radius:4px;padding:5px 2px}
+.ratios small{display:block;color:var(--muted);font-size:10.5px}
+.ratios b{font-weight:500;font-variant-numeric:tabular-nums}
+.go{width:100%;border:0;border-radius:var(--r);padding:10px;font-weight:600;background:var(--text);color:var(--bg)}
+.go:hover:not(:disabled){background:#fff}
+.go:disabled{background:var(--line2);color:var(--muted);cursor:not-allowed}
+.viol{list-style:none;margin:8px 0 0;padding:0;font-size:12px;color:var(--neg)}
+.viol li{margin-top:4px}
+.meta .warn{color:var(--prop)}
+.tkt{margin-top:10px;font-size:12px}
+.tkt th{color:var(--muted)}
+.tkt .warn{color:var(--prop)}
+.tkt tr:has(td:empty){display:none}
+.cmp{margin-top:10px;font-size:12px}
+.cmp thead th{text-align:right;font-weight:500;color:var(--dim)}
+.cmp th{color:var(--muted)}
+
+/* Details (Asset, Regeln) */
+details summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;font-size:11px;font-weight:500;
+  text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:"+";font-size:14px;line-height:1}
+details[open] summary::after{content:"–"}
+details summary:hover{color:var(--text)}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin-top:12px}
+.fgrid label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted)}
+.fgrid input,.fgrid select{width:100%}
+.fgrid select{background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:4px 7px}
+.fgrid .chk{grid-column:1/-1;flex-direction:row;align-items:center;gap:8px;color:var(--dim);font-size:12px}
+.fgrid .chk input{width:auto;margin:0;flex:none}
+.fgrid.c3{grid-template-columns:repeat(3,1fr)}
+.rgroup{padding:12px 0;border-bottom:1px solid var(--line)}
+.rgroup:first-child{padding-top:10px}
+.rgroup h3{margin:0;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.rgroup .fgrid{margin-top:8px}
+.rgroup .fgrid + .fgrid{margin-top:8px}
+.btn.primary{border-color:var(--muted);color:var(--text)}
+.btn.primary.dirty{border-color:var(--prop);color:var(--prop)}
+.btn.primary.dirty::after{content:" *"}
+.btn{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:6px 10px}
+.btn:hover:not(:disabled){border-color:var(--muted)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.full{width:100%;margin-top:12px}
+.saved{list-style:none;margin:12px 0 0;padding:0}
+.saved li{display:flex;align-items:center;gap:8px;padding:4px 0}
+.saved li span:first-child{flex:1}
+.xs{background:none;border:0;color:var(--muted);padding:0 2px}
+.xs:hover{color:var(--neg)}
+.chkTbl{margin-top:10px}
+
+/* Unterer Bereich */
+.book{border-top:1px solid var(--line)}
+.tabs{display:flex;gap:2px;padding:6px 10px;border-bottom:1px solid var(--line)}
+.tabs button{background:none;border:0;border-radius:4px;padding:3px 10px;color:var(--muted);font-size:12px}
+.tabs button.on{color:var(--text);background:var(--hover)}
+.tblWrap{overflow-x:auto}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{text-align:left;font-weight:400;color:var(--muted);padding:6px 12px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:11.5px}
+.tbl td{padding:7px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+.tbl tr:hover td{background:var(--panel)}
+.empty{padding:16px 12px;color:var(--muted);margin:0}
+.days{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px}
+.days button{background:none;border:1px solid var(--line2);border-radius:4px;padding:2px 8px;font-size:12px;color:var(--dim)}
+
+#toast{position:fixed;right:14px;bottom:14px;max-width:380px;display:flex;flex-direction:column;gap:6px;z-index:10}
+.t{background:var(--hover);border:1px solid var(--line2);border-left:2px solid var(--pos);padding:8px 12px;border-radius:var(--r);font-size:12.5px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.t.err{border-left-color:var(--neg)}
+
+
+/* Ansichten */
+.views{display:flex;gap:2px;background:var(--panel);border-radius:var(--r);padding:2px}
+.views button{background:none;border:0;border-radius:4px;padding:3px 12px;font-size:12px;color:var(--muted)}
+.views button.on{background:var(--hover);color:var(--text)}
+body.view-sim .term{display:none!important}
+
+/* Simulator */
+.sim{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.simSide{border-right:1px solid var(--line);padding:6px 16px 16px;overflow-y:auto;max-height:calc(100vh - 45px);position:sticky;top:0}
+.sgroup{padding:12px 0;border-bottom:1px solid var(--line)}
+.sgroup:last-of-type{border-bottom:0}
+.sgroup h3{margin:0 0 8px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.sgrid label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--dim)}
+.sgrid label.full{grid-column:1/-1}
+.sgrid input,.sgrid select{width:100%;background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:4px 7px}
+.sgrid .chk{grid-column:1/-1;flex-direction:row;align-items:center;gap:8px;font-size:12px}
+.sgrid .chk input{width:auto}
+.unit{position:relative}
+.unit input{padding-right:22px}
+.unit::after{content:attr(data-u);position:absolute;right:7px;bottom:5px;font-size:11px;color:var(--muted);pointer-events:none}
+.simMain{padding:16px 20px 28px;min-width:0}
+.simTop{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin-bottom:16px}
+.seg{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:2px}
+.seg button{background:none;border:0;border-radius:4px;padding:5px 12px;font-size:12.5px;color:var(--dim)}
+.seg button.on{background:var(--text);color:var(--bg);font-weight:500}
+.modeIn{display:flex;flex-wrap:wrap;align-items:end;gap:10px}
+.modeIn label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--dim)}
+.modeIn input,.modeIn select{width:96px;background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:4px 7px}
+.modeIn select{width:auto}
+.modeIn input.wide{width:150px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin-bottom:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px}
+.kpi small{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
+.kpi b{font-size:19px;font-weight:500;font-variant-numeric:tabular-nums}
+.kpi.hl{border-color:var(--line2);background:var(--hover)}
+.kpi em{font-style:normal;font-size:11.5px;color:var(--muted);margin-left:4px}
+.panels{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;min-width:0}
+.panel .lbl{margin-bottom:8px}
+.heatWrap{position:relative}
+#heat{width:100%;display:block;cursor:crosshair}
+.legendBar{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin-top:8px}
+.legendBar i{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,#440154,#3b528b,#21918c,#5ec962,#fde725)}
+.tip{position:absolute;pointer-events:none;background:var(--bg);border:1px solid var(--line2);border-radius:4px;padding:5px 8px;
+  font-size:11.5px;white-space:nowrap;transform:translate(10px,10px);display:none;z-index:2}
+#curve,#tree{width:100%;display:block}
+#tree{max-width:540px;margin:0 auto}
+.simNote{font-size:12px;color:var(--muted);margin:10px 0 0}
+body:not(.two-step) .only2{display:none!important}
+/* Gespeicherte Konfigurationen */
+.sim.cmp{grid-template-columns:300px minmax(0,1fr) 300px}
+.simCompare{border-left:1px solid var(--line);padding:14px 14px 20px;max-height:calc(100vh - 45px);overflow-y:auto;position:sticky;top:0}
+.simCompare .lbl{margin-bottom:10px}
+.cmpTools{display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--muted)}
+.cmpTools select{background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:3px 6px;flex:1}
+.cfg{border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;margin-bottom:8px;cursor:pointer;background:var(--panel);transition:border-color .12s}
+.cfg:hover{border-color:var(--muted)}
+.cfg.cur{border-color:var(--text);background:var(--hover)}
+.cfg .top{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.cfg .top b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cfg .desc{font-size:11px;color:var(--muted);margin:2px 0 7px}
+.cfg .vals{display:grid;grid-template-columns:repeat(3,1fr);gap:5px 8px;font-size:12.5px;font-variant-numeric:tabular-nums}
+.cfg .vals small{display:block;color:var(--muted);font-size:10.5px}
+.cfg .vals .best{color:var(--pos);font-weight:500}
+.cfg .hs{font-size:11px;color:var(--dim);margin-top:6px}
+.cmpEmpty{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.saveRow{display:flex;gap:6px;align-items:center;margin-left:auto}
+.saveRow input{width:170px;background:var(--panel);border:1px solid var(--line2);border-radius:4px;padding:5px 8px}
+.cmpToggle{white-space:nowrap}
+
+/* Lade-Overlay */
+.panels{position:relative}
+.loading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:min(150px,18vh);gap:12px;
+  background:rgba(18,22,28,.72);border-radius:var(--r);backdrop-filter:blur(1px);font-size:13px;color:var(--dim)}
+.loading .spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--text);animation:spin .8s linear infinite}
+.loading .bar{width:180px;height:3px;border-radius:2px;background:var(--line2);overflow:hidden}
+.loading .bar i{display:block;width:40%;height:100%;background:var(--live);animation:slide 1.1s ease-in-out infinite}
+.loading small{color:var(--muted);font-variant-numeric:tabular-nums}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.kpis.dim{opacity:.45;transition:opacity .15s}
+.ranges{display:flex;flex-wrap:wrap;gap:6px 18px;margin:-6px 0 16px;font-size:12.5px;color:var(--muted)}
+.ranges b{font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+@media (max-width:1650px){.sim.cmp .panels{grid-template-columns:1fr}}
+@media (max-width:1100px){.sim.cmp{grid-template-columns:300px minmax(0,1fr)}
+  .simCompare{grid-column:1/-1;position:static;max-height:none;border-left:0;border-top:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){.loading .spin,.loading .bar i{animation:none}}
+
+#simBusy{order:9;font-size:12px}
+@media (max-width:1100px){.panels{grid-template-columns:1fr}}
+@media (max-width:820px){.sim{grid-template-columns:1fr}.simSide{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line)}}
+
+@media (max-width:980px){
+  main{grid-template-columns:1fr}
+  .chartWrap{position:relative;height:60vh;border-right:0;border-bottom:1px solid var(--line)}
+  header{height:auto;flex-wrap:wrap;padding:8px 14px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">PropHedge<small id="mode"></small></div>
+  <nav class="views" id="views">
+    <button data-view="terminal" class="on" type="button">Terminal</button>
+    <button data-view="sim" type="button">Simulator</button>
+  </nav>
+  <select id="assetSel" class="term" aria-label="Asset"></select>
+  <div class="px" title="Prop-Feed (Bid)"><span class="dot p"></span><b id="pPx">–</b></div>
+  <div class="px" title="Live-Feed (Bid)"><span class="dot l"></span><b id="lPx">–</b><small class="muted" id="lSym"></small></div>
+  <div class="spacer"></div>
+  <div class="hmeta">
+    <span id="eodTxt"></span>
+    <span id="conn">Verbinde…</span>
+  </div>
+  <button id="panic" class="panic" type="button">Alles schließen</button>
+</header>
+
+<main class="term">
+  <section class="chartWrap">
+    <div class="tfs" id="tfs">
+      <button data-tf="M1" class="on" type="button">1m</button>
+      <button data-tf="M5" type="button">5m</button>
+      <button data-tf="M15" type="button">15m</button>
+      <button data-tf="H1" type="button">1h</button>
+    </div>
+    <div id="chart"></div>
+  </section>
+
+  <aside>
+    <section>
+      <h2 class="lbl">Konten <button id="accEditBtn" class="link" type="button" hidden>Werte setzen</button></h2>
+      <table class="kv">
+        <thead><tr><th></th><th><span class="dot p"></span>Prop <span id="aPCcy"></span></th><th><span class="dot l"></span>Live <span id="aLCcy"></span></th></tr></thead>
+        <tbody>
+          <tr class="strong"><th>Equity</th><td id="aPEq">–</td><td id="aLEq">–</td></tr>
+          <tr><th>Hedge Ratio</th><td colspan="2" id="aRun">–</td></tr>
+          <tr><th>Balance</th><td id="aPBal">–</td><td id="aLBal">–</td></tr>
+          <tr><th>Freie Margin</th><td id="aPFree">–</td><td id="aLFree">–</td></tr>
+          <tr><th title="Konto-Hebel laut Broker">Hebel</th><td id="aPLev">–</td><td id="aLLev">–</td></tr>
+          <tr><th>Offen</th><td id="aPFl">–</td><td id="aLFl">–</td></tr>
+          <tr><th>Heute</th><td id="aPReal">–</td><td id="aLReal">–</td></tr>
+        </tbody>
+      </table>
+      <form id="accForm" class="fgrid" hidden>
+        <label>Balance Prop<input name="prop_balance" type="number" step="any" min="0"></label>
+        <label>Balance Live<input name="live_balance" type="number" step="any" min="0"></label>
+        <label>Heute Prop<input name="prop_realized" type="number" step="any"></label>
+        <label>Heute Live<input name="live_realized" type="number" step="any"></label>
+        <button class="btn" type="submit" style="grid-column:1/-1">Übernehmen</button>
+      </form>
+      <div id="scenBox" class="scen"></div>
+    </section>
+
+    <section>
+      <h2 class="lbl">Tagesbudget <span id="limitTxt"></span></h2>
+      <div class="gauge" aria-hidden="true">
+        <div class="zero"></div>
+        <div class="band open" id="gOpen"></div>
+        <div class="band preview" id="gPrev"></div>
+        <div class="mark" id="gReal"></div>
+      </div>
+      <div class="gscale"><span id="gMin"></span><span id="gMax"></span></div>
+      <table class="kv">
+        <tbody>
+          <tr><th>Offenes Risiko</th><td id="sRisk">–</td></tr>
+          <tr><th title="Daily Drawdown + realisiert − offenes Risiko">Puffer Daily DD</th><td id="sDD">–</td></tr>
+          <tr><th title="Consistency Limit − realisiert − offene TP-Chance">Puffer Consistency</th><td id="sCons">–</td></tr>
+          <tr><th id="sMaxLbl">Puffer Max Loss</th><td id="sMax">–</td></tr>
+          <tr class="sep"><th>Profit Target</th><td id="sTarget">–</td></tr>
+        </tbody>
+      </table>
+      <div class="bar"><i id="pBar"></i></div>
+    </section>
+
+    <section>
+      <h2 class="lbl">Neuer Hedge</h2>
+      <div class="lots">
+        <div><b id="lots">–</b><small><span class="dot p"></span>Lots Prop</small></div>
+        <div><b id="hlots">–</b><small><span class="dot l"></span>Lots Live</small></div>
+      </div>
+      <div class="row">
+        <label for="fDist">SL / TP Abstand</label>
+        <input id="fDist" type="number" step="any" min="0">
+      </div>
+      <table class="kv tkt">
+        <tbody>
+          <tr><th>Risiko</th><td id="tRisk"></td></tr>
+          <tr><th>TP netto</th><td id="tTp"></td></tr>
+          <tr><th>Abstand</th><td id="tAtr"></td></tr>
+          <tr><th>Kosten</th><td id="tCost"></td></tr>
+          <tr><th title="Für den Simulator: f_E = 0, f_L bei h = 1">Simulator f<sub>L</sub></th><td id="tSim"></td></tr>
+          <tr><th>Margin Prop</th><td id="tMp"></td></tr>
+          <tr><th>Margin Live</th><td id="tMl"></td></tr>
+        </tbody>
+      </table>
+      <p class="meta" id="corrTxt"></p>
+      <div class="ratios" title="Hedge Ratio: $-Bewegung Live ÷ $-Bewegung Prop">
+        <div><small>Ratio Plan</small><b id="rPlan">–</b></div>
+        <div><small>Gerundet</small><b id="rNext">–</b></div>
+        <div><small>Offen</small><b id="rOpen">–</b></div>
+        <div><small id="rRealLbl">Gesamt</small><b id="rReal">–</b></div>
+      </div>
+      <button id="openBtn" class="go" type="button" title="Richtung zufällig: Prop Long + Live Short oder umgekehrt">Position öffnen</button>
+      <ul id="viol" class="viol"></ul>
+    </section>
+
+    <details id="assetBox">
+      <summary>Assets <span id="assetTxt" hidden></span></summary>
+      <div class="fgrid">
+        <label>Prop-Symbol<input id="aProp" list="dlProp" autocomplete="off" spellcheck="false"></label>
+        <label>Live-Symbol<input id="aLive" list="dlLive" autocomplete="off" spellcheck="false"></label>
+        <label>SL / TP Abstand<input id="aDist" type="number" step="any" min="0"></label>
+        <label>Max. Preisabw. %<input id="aDev" type="number" step="any" min="0"></label>
+      </div>
+      <datalist id="dlProp"></datalist><datalist id="dlLive"></datalist>
+      <div class="btns">
+        <button id="aCheck" class="btn" type="button">Prüfen</button>
+        <button id="aApply" class="btn" type="button" disabled>Übernehmen</button>
+      </div>
+      <div id="aResult"></div>
+      <ul id="aSaved" class="saved"></ul>
+    </details>
+
+    <details id="rulesBox">
+      <summary>Regeln</summary>
+      <form id="rulesForm">
+        <div class="rgroup">
+          <h3>Prop-Firma Limits</h3>
+          <div class="fgrid">
+          <label>Daily Drawdown<input name="daily_drawdown" type="number" step="any" required></label>
+          <label title="Consistency Limit = Profit Target × Faktor">Consistency %<input name="consistency_pct" type="number" step="any" required></label>
+          <label>Max Loss<input name="max_loss" type="number" step="any" required></label>
+          <label>Profit Target<input name="profit_target" type="number" step="any" required></label>
+          <label>Startkapital<input name="initial_balance" type="number" step="any" required></label>
+          <label title="So viel % vor dem echten Limit wird aufgehört (Daily Drawdown, Consistency, Max Loss). Größen und Sperren rechnen mit den verkleinerten Limits.">Sicherheitspuffer %<input name="safety_pct" type="number" step="any" min="0" max="99" required></label>
+          <label title="EOD trailing: nach jedem Handelstag steigt die Grenze auf Tagesend-Stand × (1 − Max-Loss-%), sinkt aber nie">Max-Loss-Art<select name="max_loss_mode"><option value="static">statisch</option><option value="eod_trailing">EOD trailing</option></select></label>
+          <label class="chk"><input name="trail_lock" type="checkbox">Trailing stoppt bei Startkapital</label>
+          </div>
+        </div>
+        <div class="rgroup">
+          <h3>Positionsgröße</h3>
+          <div class="fgrid">
+          <label title="Anteil des freien Tagesbudgets pro Hedge">Budget pro Hedge %<input name="risk_pct" type="number" step="any" required></label>
+          <label title="Obergrenze für Prop-Lots pro Hedge, schützt bei sehr kleinem Abstand vor zu großen Positionen. 0 = aus.">Max. Lots Prop<input name="max_lots" type="number" step="any" min="0" required></label>
+          <label class="chk"><input name="max_risk_enabled" type="checkbox">Risiko pro Trade deckeln (FTMO)</label>
+          <label title="Maximales Risiko am Prop-SL (Kursverlust + Kommission) in % vom Startkapital">Max. Risiko/Trade %<input name="max_risk_pct" type="number" step="any" min="0.01" required></label>
+          <label title="Höchstens so viel % der freien Margin darf ein neuer Hedge je Konto belegen">Max. Margin-Nutzung %<input name="margin_max_use_pct" type="number" step="any" min="1" max="100" required></label>
+          <label title="Zuschlag aufs SL-Risiko für Slippage">Slippage-Puffer %<input name="buffer_pct" type="number" step="any" required></label>
+          <label class="chk" title="Wenn der Rest bis zum Profit-Ziel kleiner ist als ein normaler TP, wird die Position nur so groß, dass der TP das Ziel gerade erreicht. Weniger Risiko und Kosten auf dem letzten Trade. Ist das Ziel erreicht, sind neue Hedges gesperrt."><input name="target_cap_enabled" type="checkbox">Vor dem Profit-Ziel nur bis zum Ziel traden</label>
+          <label title="Aufschlag auf den Rest bis zum Ziel. Kommission und Spread sind schon eingerechnet; der Puffer fängt Slippage ab: Beim Spiegeln löst der Live-SL zuerst aus und die App schließt Prop erst danach zum Marktpreis (bis ca. 1–2 s). 15 % deckt bei 12 Pips Abstand rund 1,6 Pips Slippage. Zu viel Gewinn schadet nicht, knapp verfehlt kostet einen weiteren ganzen Trade.">Ziel-Puffer %<input name="target_buffer_pct" type="number" step="any" min="0" required></label>
+          <label title="Gegen einseitiges Wetten">Richtung<select name="direction_mode"><option value="alternate">abwechselnd</option><option value="random">immer 50/50</option></select></label>
+          </div>
+        </div>
+        <div class="rgroup">
+          <h3>SL / TP</h3>
+          <div class="fgrid">
+          <label class="chk" title="SL/TP-Abstand = ATR des Prop-Symbols × Faktor statt fester Abstand. Das Risiko pro Trade bleibt gleich, die Lots passen sich an."><input name="atr_enabled" type="checkbox">SL/TP aus ATR</label>
+          <label>ATR-Zeitrahmen<select name="atr_timeframe"><option>M5</option><option>M15</option><option>M30</option><option>H1</option><option>H4</option><option>D1</option></select></label>
+          <label>ATR-Perioden<input name="atr_period" type="number" step="1" min="2" max="200" required></label>
+          <label title="SL/TP-Abstand = ATR × Faktor">ATR-Faktor<input name="atr_mult" type="number" step="any" min="0.1" required></label>
+          <label title="Max. Preisabweichung Prop/Live">Max. Preisabw. %<input name="max_price_dev_pct" type="number" step="any" required></label>
+          <label class="chk"><input name="mirror_brackets" type="checkbox">Live-SL/TP auf Prop spiegeln</label>
+          <label class="chk"><input name="auto_close_orphan" type="checkbox">Gegenseite automatisch schließen</label>
+          </div>
+          <table class="kv cmp" id="atrCmp"></table>
+        </div>
+        <div class="rgroup">
+          <h3>Hedge</h3>
+          <div class="fgrid">
+          <label>Hedge Ratio<input name="hedge_ratio" type="number" step="any" required></label>
+          <label title="Kosten als Gebühr: Live bewegt sich genau Ratio × so viel wie Prop, Spread und Kommission sind eine feste Gebühr pro Trade auf beiden Ausgängen (wie im Simulator, kein Nachholen). Prop-SL exakt: Fail-Pfad exakt, alle Kosten auf dem Pass-Pfad. MSE: kleinster quadratischer Fehler der Ratio über SL und TP.">Live-Lots<select name="hedge_mode"><option value="fee">Kosten als Gebühr</option><option value="sl">Prop-SL exakt</option><option value="mse">MSE über SL und TP</option></select></label>
+          <label class="chk" title="Nur bei „Prop-SL exakt“ und „MSE“"><input name="ratio_correction" type="checkbox">Ratio-Abweichung im nächsten Hedge ausgleichen</label>
+          <label>Ausgleich über<select name="ratio_scope"><option value="challenge">ganze Challenge</option><option value="day">nur heute</option></select></label>
+          <label title="Max. Korrektur in % der normalen Live-Lots">Max. Ausgleich %<input name="ratio_correction_max_pct" type="number" step="any" min="0" required></label>
+          </div>
+        </div>
+        <div class="rgroup">
+          <h3>Kosten</h3>
+          <div class="fgrid">
+          <label title="Prop, pro Lot, Hin + Rück. Wird nach jedem Entry automatisch erkannt.">Kommission/Lot<input name="commission_per_lot" type="number" step="any" min="0" required></label>
+          <label title="Live, pro Lot, Hin + Rück. Wird nach jedem Entry automatisch erkannt.">Kommission Live/Lot<input name="commission_live_per_lot" type="number" step="any" min="0" required></label>
+          <label title="Spread + Kommission in % des SL/TP-Abstands">Kosten Warnung %<input name="cost_warn_pct" type="number" step="any" min="0" required></label>
+          <label title="Ab hier keine neuen Hedges">Kosten Sperre %<input name="cost_max_pct" type="number" step="any" min="0" required></label>
+          </div>
+        </div>
+        <div class="rgroup">
+          <h3>Handelszeiten</h3>
+          <div class="fgrid">
+          <label title="Serverzeit des Prop-Brokers">Tageswechsel (Std.)<input name="reset_hour" type="number" step="1" min="0" max="23" required></label>
+          <label class="chk"><input name="eod_enabled" type="checkbox">Vor NY-Close alles schließen</label>
+          </div>
+          <div class="fgrid c3">
+          <label title="New-York-Zeit">NY-Close<input name="eod_time" type="time" required></label>
+          <label>Schließen (min)<input name="eod_close_min" type="number" step="1" min="0" required></label>
+          <label>Sperre (min)<input name="eod_block_min" type="number" step="1" min="0" required></label>
+          </div>
+          <div class="fgrid">
+          <label class="chk"><input name="weekend_close_enabled" type="checkbox">Freitags vor dem Wochenende alles schließen</label>
+          </div>
+          <div class="fgrid c3">
+          <label title="Freitag, New-York-Zeit (Wochenschluss FX: 17:00)">Fr Schluss<input name="weekend_time" type="time" required></label>
+          <label>Schließen (min)<input name="weekend_close_min" type="number" step="1" min="0" required></label>
+          <label>Sperre (min)<input name="weekend_block_min" type="number" step="1" min="0" required></label>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="rulesSave" type="submit">Speichern</button>
+          <button class="btn" id="ratioReset" type="button" title="Startet die Ratio-Zählung neu, setzt den Startpunkt für den EOD-Trailing-Max-Loss und vergisst die von den alten Konten gelernten Kommissionen">Neue Challenge</button>
+        </div>
+      </form>
+    </details>
+  </aside>
+</main>
+
+<section class="book term">
+  <div class="tabs">
+    <button data-tab="open" class="on" type="button">Offen</button>
+    <button data-tab="journal" type="button">Journal</button>
+  </div>
+  <div id="tabOpen" class="tblWrap"></div>
+  <div id="tabJournal" class="tblWrap" hidden></div>
+</section>
+
+
+<section id="viewSim" class="sim" hidden>
+  <form id="simForm" class="simSide" autocomplete="off">
+    <div class="sgroup">
+      <h3>Konto</h3>
+      <div class="sgrid">
+        <label>Kontogröße<input name="A" type="number" step="any" min="0"></label>
+        <label>Preis Evaluation<input name="C" type="number" step="any" min="0"></label>
+        <label class="unit" data-u="%" title="Risiko pro Trade in % der Kontogröße">Risiko / Trade<input name="r" type="number" step="any" min="0" data-pct></label>
+        <label class="chk" title="Begrenzt „Risiko / Trade“ auf höchstens 1,5 % (FTMO). Kleinere Trades = mehr Trades = mehr Gebühren."><input name="max_r_enabled" type="checkbox">Auf 1,5 % deckeln (FTMO)</label>
+        <label class="unit" data-u="%">Profit-Split<input name="phi" type="number" step="any" min="0" max="100" data-pct></label>
+        <label class="unit" data-u="%" title="Anteil der erreichten Payouts, die tatsächlich ausgezahlt werden">Auszahlungsquote<input name="q" type="number" step="any" min="0" max="100" data-pct></label>
+        <label title="Einmalige Gebühr beim Start des Funded-Kontos">Aktivierung Funded<input name="C_F" type="number" step="any" min="0"></label>
+        <label class="full">Funded-Startkapital<select name="funded_scaled"><option value="1">Kontogröße × (1 + Profit-Ziel)</option><option value="0">Kontogröße (Reset)</option></select></label>
+        <label class="chk" title="Die Challenge-Gebühr kommt mit dem ersten Payout zurück (z. B. FTMO)"><input name="refund_fee" type="checkbox">Gebühr mit 1. Payout erstattet</label>
+      </div>
+    </div>
+    <div class="sgroup">
+      <h3 id="evalTitle">Evaluation</h3>
+      <div class="sgrid">
+        <label class="chk" title="Zwei Eval-Steps hintereinander (z. B. FTMO Challenge + Verification), jeder mit eigener Hedge Ratio"><input name="two_step" type="checkbox">2-Step-Challenge</label>
+        <label class="unit" data-u="%">Profit-Ziel<input name="T_E" type="number" step="any" min="0" data-pct></label>
+        <label class="unit" data-u="%">Max Drawdown<input name="D_E" type="number" step="any" min="0" data-pct></label>
+        <label class="full" title="EOD trailing: nach jedem Tag steigt die Grenze auf Tagesend-Stand × (1 − Drawdown), sinkt nie">Drawdown-Art<select name="dd_mode_E"><option value="static">statisch</option><option value="trailing">EOD trailing</option></select></label>
+      </div>
+    </div>
+    <div class="sgroup" id="step2Fields" hidden>
+      <h3>Step 2</h3>
+      <div class="sgrid">
+        <label class="unit" data-u="%">Profit-Ziel<input name="T_E2" type="number" step="any" min="0" data-pct></label>
+        <label class="unit" data-u="%">Max Drawdown<input name="D_E2" type="number" step="any" min="0" data-pct></label>
+        <label class="full">Drawdown-Art<select name="dd_mode_E2"><option value="static">statisch</option><option value="trailing">EOD trailing</option></select></label>
+      </div>
+    </div>
+    <div class="sgroup">
+      <h3>Funded</h3>
+      <div class="sgrid">
+        <label class="unit" data-u="%">Payout-Ziel<input name="T_F" type="number" step="any" min="0" data-pct></label>
+        <label class="unit" data-u="%">Max Drawdown<input name="D_F" type="number" step="any" min="0" data-pct></label>
+        <label class="full">Drawdown-Art<select name="dd_mode_F"><option value="static">statisch</option><option value="trailing">EOD trailing</option></select></label>
+      </div>
+    </div>
+    <div class="sgroup">
+      <h3>Kosten pro Trade</h3>
+      <div class="sgrid">
+        <label title="Nur Kosten, die du selbst bar zahlst. Die Prop-Kommission geht vom Prop-Konto ab und gehört in „Live-Konto (bei h = 1)“.">Prop Eval<input name="f_E" type="number" step="any" min="0"></label>
+        <label title="Nur Kosten, die du selbst bar zahlst. Die Prop-Kommission geht vom Prop-Konto ab und gehört in „Live-Konto (bei h = 1)“.">Prop Funded<input name="f_EF" type="number" step="any" min="0"></label>
+        <label title="Kosten pro Trade bei Hedge Ratio 1, wird mit h der Phase skaliert: Live-Spread + Live-Kommission + Prop-Kommission (die verschiebt den Prop-Stand, Live hedgt die Kursbewegung, also zahlt Live h × Prop-Kommission). Wert steht in der Hedge-App unter „Neuer Hedge“.">Live-Konto (bei h = 1)<input name="f_L" type="number" step="any" min="0"></label>
+        <label class="chk" title="Gebühren je Pfad mit der bedingten Trade-Anzahl (Pass-Pfade dauern im Schnitt anders lang als Fail-Pfade). Aus = Mittelwert wie im Paper."><input name="exact_fees" type="checkbox">Gebühren je Pfad exakt</label>
+      </div>
+    </div>
+    <div class="sgroup">
+      <h3>Optimierung</h3>
+      <div class="sgrid">
+        <label>Ziel<select name="metric"><option value="sortino">Sortino</option><option value="ev">Erwartungswert</option><option value="roi">ROI auf Kapital</option></select></label>
+        <label>Raster<select name="step"><option value="0.05">0,05</option><option value="0.025">0,025</option><option value="0.01">0,01</option></select></label>
+        <label title="Für EOD trailing: nach so vielen Trades endet ein Handelstag">Trades pro Tag<input name="trades_per_day" type="number" step="1" min="1"></label>
+        <label title="Simulierte Pfade bei EOD trailing (mehr = genauer, langsamer)">MC-Pfade<input name="mc_paths" type="number" step="1000" min="1000" max="200000"></label>
+        <label class="chk"><input name="trail_lock" type="checkbox">Trailing stoppt bei Startkapital</label>
+      </div>
+      <button id="simDefaults" class="btn full" type="button">Standardwerte</button>
+    </div>
+  </form>
+
+  <div class="simMain">
+    <div class="simTop">
+      <span id="simBusy" class="muted" hidden></span>
+      <form class="saveRow" id="cfgSave" autocomplete="off">
+        <input id="cfgName" maxlength="80" placeholder="Name der Konfiguration">
+        <button class="btn" type="submit">Speichern</button>
+        <button class="btn cmpToggle" id="cmpToggle" type="button">Vergleich</button>
+      </form>
+      <div class="seg" id="simMode">
+        <button data-mode="optimize" class="on" type="button">Optimieren</button>
+        <button data-mode="custom" type="button">Eigene Ratios</button>
+        <button data-mode="funded" type="button">Funded neu bestimmen</button>
+      </div>
+      <div class="modeIn" id="inCustom" hidden>
+        <label><span class="lblE1">h<sub>E</sub></span><input id="cHE" type="number" step="0.01" min="0" max="2"></label>
+        <label class="only2"><span>h<sub>2</sub></span><input id="cHE2" type="number" step="0.01" min="0" max="2"></label>
+        <label><span>h<sub>F</sub></span><input id="cHF" type="number" step="0.01" min="0" max="2"></label>
+      </div>
+      <div class="modeIn" id="inFunded" hidden>
+        <label title="Hedge Ratio, mit der die Eval (bzw. Step 1) tatsächlich gehedgt wurde"><span><span class="lblE1">h<sub>E</sub></span> tatsächlich</span><input id="fHE" type="number" step="0.01" min="0" max="2"></label>
+        <label class="only2" title="Hedge Ratio in Step 2"><span>h<sub>2</sub> tatsächlich</span><input id="fHE2" type="number" step="0.01" min="0" max="2"></label>
+        <label>Status<select id="fStatus"><option value="0">Eval läuft noch</option><option value="1">Eval bestanden</option></select></label>
+        <label title="Optional: tatsächlicher Gesamtstand nach der Eval (Live-P&L − Preis − Gebühren). Leer = aus h_E berechnet.">Stand nach Eval<input id="fPE" class="wide" type="number" step="any" placeholder="aus h_E"></label>
+        <button id="fFromLive" class="btn" type="button" title="h_E = laufende Hedge Ratio aus dem Terminal">Aus Terminal</button>
+      </div>
+    </div>
+
+    <div class="kpis" id="simKpis"></div>
+    <div class="ranges" id="simRanges" title="Je Phase: Bereich der Hedge Ratio, in dem sowohl ein Verlust dieser Phase als auch der Payout netto ≥ 0 enden (andere Ratios fest auf den gewählten Werten). Untergrenze: Live-Gewinn bei Fail deckt Gebühren und bisherige Verluste. Obergrenze: Payout deckt noch den Live-Verlust beim Bestehen."></div>
+
+    <div class="panels">
+      <div class="loading" id="simLoading" hidden role="status" aria-live="polite">
+        <div class="spin"></div>
+        <span id="simLoadTxt">Rechne…</span>
+        <div class="bar"><i></i></div>
+        <small id="simLoadTime">0,0 s</small>
+      </div>
+      <div class="panel">
+        <h2 class="lbl" id="leftTitle">Sortino nach Hedge Ratio <span id="leftSub"></span></h2>
+        <div class="heatWrap" id="heatWrap">
+          <canvas id="heat" height="360"></canvas>
+          <div class="tip" id="heatTip"></div>
+          <div class="legendBar" title="Farbe nach Rang (Perzentil), Werte an den Enden: Minimum / Maximum"><span id="legMin"></span><i></i><span id="legMax"></span></div>
+        </div>
+        <svg id="curve" viewBox="0 0 560 360" hidden></svg>
+      </div>
+      <div class="panel">
+        <h2 class="lbl">Pfade <span id="treeSub"></span></h2>
+        <svg id="tree" viewBox="0 0 420 322"></svg>
+        <p class="simNote" id="simNote"></p>
+      </div>
+    </div>
+  </div>
+
+  <aside class="simCompare" id="simCompare" hidden>
+    <h2 class="lbl">Gespeichert <span id="cmpCount"></span></h2>
+    <div class="cmpTools">Sortieren
+      <select id="cmpSort">
+        <option value="created">neueste zuerst</option>
+        <option value="ev">Erwartungswert</option>
+        <option value="sortino">Sortino</option>
+        <option value="roi">ROI auf Kapital</option>
+        <option value="capital">Kapitalbedarf</option>
+        <option value="q_star">Breakeven-Auszahlung</option>
+      </select>
+    </div>
+    <div id="cmpList"></div>
+  </aside>
+</section>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const TF = {M1: 60, M5: 300, M15: 900, H1: 3600};
+const C = {pos: '#3FB68B', neg: '#E5656A', prop: '#D9A54A', live: '#6F9BE8', text: '#D9DEE5', dim: '#9AA3B0', muted: '#6B7584'};
+const nf = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? '–' :
+  Number(v).toLocaleString('de-DE', {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = v => (v === null || v === undefined || isNaN(v)) ? '–' : (v < 0 ? '−' : '') + nf(Math.abs(v));
+const signed = v => (v === null || v === undefined || isNaN(v)) ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + nf(Math.abs(v));
+const sgn = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+const colored = v => `<span class="${sgn(v)}">${signed(v)}</span>`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const sideTxt = s => s === 'buy' ? 'Long' : 'Short';
+const ratioTxt = v => v === null || v === undefined ? '–' : nf(v, 3);
+
+let st = null, tf = 'M1', lastBar = null, lineSig = '', priceLines = [], hoverOpen = false, busy = false, journalDay = null, digits = null;
+const dg = acc => st ? st[acc === 'live' ? 'live' : 'prop'].digits : 2;
+
+const chart = LightweightCharts.createChart($('chart'), {
+  autoSize: true,
+  localization: {locale: 'de-DE'},
+  layout: {background: {type: 'solid', color: '#12161C'}, textColor: C.muted, fontFamily: 'IBM Plex Sans, system-ui, sans-serif', fontSize: 11},
+  grid: {vertLines: {color: '#181D25'}, horzLines: {color: '#181D25'}},
+  rightPriceScale: {borderColor: '#232A35'},
+  timeScale: {borderColor: '#232A35', timeVisible: true, secondsVisible: false},
+  crosshair: {mode: LightweightCharts.CrosshairMode.Normal}
+});
+// Preisbereich, der zusätzlich zu den Kerzen sichtbar bleiben soll (ATR-Linien)
+let keepVisible = null;
+const candles = chart.addCandlestickSeries({
+  upColor: C.pos, downColor: C.neg, borderVisible: false, wickUpColor: C.pos, wickDownColor: C.neg,
+  autoscaleInfoProvider: base => {
+    const r = base();
+    if (r && r.priceRange && keepVisible) {
+      r.priceRange.minValue = Math.min(r.priceRange.minValue, keepVisible[0]);
+      r.priceRange.maxValue = Math.max(r.priceRange.maxValue, keepVisible[1]);
+    }
+    return r;
+  }
+});
+
+function toast(msg, err = false) {
+  const el = document.createElement('div');
+  el.className = 't' + (err ? ' err' : '');
+  el.innerHTML = msg;
+  $('toast').appendChild(el);
+  setTimeout(() => el.remove(), err ? 9000 : 4000);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {headers: {'Content-Type': 'application/json'}, ...opts});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const d = j.detail;
+    const list = Array.isArray(d) ? d.map(x => typeof x === 'string' ? x : (x.loc ? x.loc.at(-1) + ': ' : '') + x.msg) : [d || r.statusText];
+    const e = new Error(list.join(' | '));
+    e.list = list;
+    throw e;
+  }
+  return j;
+}
+
+async function loadCandles() {
+  try {
+    const bars = await api(`/api/candles?tf=${tf}&count=800`);
+    candles.setData(bars);
+    lastBar = bars.length ? {...bars[bars.length - 1]} : null;
+    chart.timeScale().scrollToRealTime();
+  } catch (e) {
+    toast('Kerzen nicht geladen: ' + esc(e.message), true);
+  }
+}
+
+function onTick(s) {
+  if (!lastBar) return;
+  const sec = TF[tf], px = s.prop.tick.bid, bt = Math.floor(s.server_time / sec) * sec;
+  if (bt > lastBar.time) lastBar = {time: bt, open: px, high: px, low: px, close: px};
+  else if (bt === lastBar.time) {
+    lastBar.high = Math.max(lastBar.high, px);
+    lastBar.low = Math.min(lastBar.low, px);
+    lastBar.close = px;
+  } else return;
+  candles.update({...lastBar});
+}
+
+function drawLines(s) {
+  const specs = [];
+  for (const t of s.pairs) for (const l of t.legs) {
+    if (!l.live_open) continue;
+    const live = l.account === 'live';
+    const style = live ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid;
+    const who = live ? 'Live' : 'Prop';
+    specs.push({price: l.entry, color: live ? C.live : C.prop, style, title: `${who} ${sideTxt(l.side)} ${nf(l.volume, 2)}`});
+    if (l.sl) specs.push({price: l.sl, color: C.neg, style, title: `${who} SL`});
+    if (l.tp) specs.push({price: l.tp, color: C.pos, style, title: `${who} TP`});
+  }
+  for (const p of s.unmanaged) {
+    specs.push({price: p.price_open, color: C.muted, style: LightweightCharts.LineStyle.Dotted, title: 'Extern'});
+  }
+  keepVisible = null;
+  if (s.atr && s.prop.tick) {
+    // Wo SL/TP bei ATR-Abstand lägen (Richtung offen, daher beide Seiten)
+    const mid = (s.prop.tick.bid + s.prop.tick.ask) / 2, d = s.atr.distance;
+    keepVisible = [mid - d, mid + d];
+    const st = LightweightCharts.LineStyle.LargeDashed, col = s.rules.atr_enabled ? C.dim : C.muted;
+    specs.push({price: mid + d, color: col, style: st, title: `ATR +${nf(d, s.prop.digits)}`});
+    specs.push({price: mid - d, color: col, style: st, title: `ATR −${nf(d, s.prop.digits)}`});
+  }
+  if (hoverOpen && s.preview && s.size.lots > 0) {
+    const pv = s.preview.buy;
+    specs.push({price: pv.tp, color: C.text, style: LightweightCharts.LineStyle.SparseDotted, title: '+d'});
+    specs.push({price: pv.sl, color: C.text, style: LightweightCharts.LineStyle.SparseDotted, title: '−d'});
+  }
+  const sig = JSON.stringify(specs);
+  if (sig === lineSig) return;
+  lineSig = sig;
+  priceLines.forEach(l => candles.removePriceLine(l));
+  priceLines = specs.map(x => candles.createPriceLine({
+    price: x.price, color: x.color, lineWidth: 1, lineStyle: x.style, axisLabelVisible: true, title: x.title
+  }));
+}
+
+// Linke Hälfte = Daily Drawdown, rechte Hälfte = Consistency Limit
+function pct(v, lim) {
+  const x = v < 0 ? 50 + v / lim.dd * 50 : 50 + v / lim.cons * 50;
+  return Math.max(0, Math.min(100, x));
+}
+
+function band(el, a, b, lim) {
+  const l = pct(Math.min(a, b), lim), r = pct(Math.max(a, b), lim);
+  el.style.left = l + '%';
+  el.style.width = Math.max(0, r - l) + '%';
+}
+
+function renderBudget(s) {
+  const rm = s.rooms, lim = {dd: rm.dd_limit, cons: rm.consistency_limit};
+  $('limitTxt').textContent = `DD ${nf(lim.dd, 0)} · Consistency ${nf(lim.cons, 0)}`;
+  $('limitTxt').title = `Handelstag ${s.day} · echte Limits: DD ${nf(rm.dd_limit_real, 0)}, ` +
+    `Consistency ${nf(rm.consistency_limit_real, 0)} (Sicherheitspuffer ${nf(s.rules.safety_pct, 1)} %)`;
+  $('gMin').textContent = '−' + nf(lim.dd, 0);
+  $('gMax').textContent = '+' + nf(lim.cons, 0);
+  $('gReal').style.left = pct(rm.realized, lim) + '%';
+  band($('gOpen'), rm.realized - rm.open_risk, rm.realized + rm.open_reward, lim);
+  if (s.size.lots > 0) {
+    $('gPrev').style.display = '';
+    band($('gPrev'), rm.realized - rm.open_risk - s.size.risk_usd, rm.realized + rm.open_reward + s.size.reward_usd, lim);
+  } else $('gPrev').style.display = 'none';
+  $('sRisk').textContent = usd(rm.open_risk);
+  const room = (v, of) => `<span class="${v < 0 ? 'neg' : ''}">${usd(v)}</span> <span class="muted">/ ${nf(of, 0)}</span>`;
+  $('sDD').innerHTML = room(rm.dd_room, rm.dd_limit);
+  $('sCons').innerHTML = room(rm.consistency_room, rm.consistency_limit);
+  $('sMax').innerHTML = `<span class="${rm.max_loss_room < 0 ? 'neg' : ''}">${usd(rm.max_loss_room)}</span> <span class="muted">/ Grenze ${nf(rm.max_loss_level, 0)}</span>`;
+  const trail = rm.max_loss_mode === 'eod_trailing', mi = rm.max_loss_info;
+  $('sMaxLbl').textContent = trail ? 'Puffer Max Loss (trailing)' : 'Puffer Max Loss';
+  $('sMaxLbl').title = trail && mi ? `EOD trailing: höchster Tagesend-Stand ${usd(mi.eod_high)} über ${mi.days} Tage, ` +
+    `statische Grenze wäre ${nf(mi.static, 0)}` : 'Kontostand minus Max-Loss-Grenze minus offenes Risiko';
+  const prog = rm.target_progress * 100;
+  $('sTarget').innerHTML = `${colored(rm.pnl_total)} <span class="muted">${nf(prog, 1)} %</span>`;
+  $('sTarget').title = rm.target_left > 0 ? `Noch ${nf(rm.target_left)} bis zum Ziel` : 'Ziel erreicht';
+  $('pBar').style.width = Math.max(0, Math.min(100, prog)) + '%';
+}
+
+function renderTicket(s) {
+  const z = s.size;
+  $('lots').textContent = nf(z.lots, 2);
+  $('hlots').textContent = nf(s.hedge_lots, 2);
+  const on = z.lots > 0;
+  $('tRisk').textContent = on ? usd(z.risk_usd) : '';
+  $('tRisk').title = on ? `SL ${usd(z.sl_usd)} + Kommission ${usd(z.commission_usd)} + Puffer. Begrenzt durch ${z.limited_by}.` : '';
+  $('tTp').textContent = on ? usd(z.reward_usd) : '';
+  $('tAtr').innerHTML = on && s.rules.atr_enabled && s.atr
+    ? `<span class="muted">ATR ${esc(s.atr.timeframe)}(${s.atr.period}) × ${nf(s.atr.mult, 2)} =</span> ${nf(s.atr.distance, s.prop.digits)}` : '';
+  renderCosts(s);
+  renderAtrCmp(s);
+  renderMargin(s);
+  renderRatios(s);
+  $('openBtn').disabled = s.violations.length > 0 || busy;
+  $('viol').innerHTML = s.violations.map(v => `<li>${esc(v)}</li>`).join('');
+  const a = s.atr, atrOn = s.rules.atr_enabled;
+  $('fDist').disabled = atrOn;
+  $('fDist').title = atrOn ? (a ? `ATR ${a.timeframe}(${a.period}) ${nf(a.atr, s.prop.digits)} × ${nf(a.mult, 2)}` : 'ATR nicht verfügbar') : '';
+  if (document.activeElement !== $('fDist')) $('fDist').value = atrOn && a ? a.distance : s.rules.sl_distance;
+}
+
+function renderAtrCmp(s) {
+  const c = s.compare, el = $('atrCmp');
+  if (!c) { el.innerHTML = ''; return; }
+  const a = c.atr, f = c.fixed, on = s.rules.atr_enabled, dg = s.prop.digits;
+  const cell = (v, fmt, use) => `<td class="${use ? '' : 'muted'}">${v === null || v === undefined ? '–' : fmt(v)}</td>`;
+  const row = (label, key, fmt, title = '') =>
+    `<tr${title ? ` title="${esc(title)}"` : ''}><th>${label}</th>${cell(f[key], fmt, !on)}${cell(a && a[key], fmt, on)}</tr>`;
+  const m2 = v => nf(v), lots = v => nf(v, 2), dist = v => nf(v, dg);
+  el.innerHTML = `<thead><tr><th></th><th class="${on ? 'muted' : ''}">Fest</th><th class="${on ? '' : 'muted'}">ATR${a ? '' : ' (–)'}</th></tr></thead><tbody>` +
+    row('Abstand', 'distance', dist, a ? `ATR ${s.atr.timeframe}(${s.atr.period}) ${nf(s.atr.atr, dg)} × ${nf(s.atr.mult, 2)}` : '') +
+    row('Lots Prop', 'lots', lots) +
+    row('Lots Live', 'hedge_lots', lots) +
+    row('Prop-Kommission', 'fee_prop', m2, 'Geht vom Prop-Konto ab') +
+    row('Live Spread + Komm.', 'fee_live', m2, 'Kosten auf dem Live-Konto pro Hedge (Durchschnitt SL/TP)') +
+    row('Kosten für dich', 'cost_you', m2, 'Live-Kosten + Hedge Ratio × Prop-Kommission (die zahlst du über den Hedge mit), pro Trade') +
+    row('Kosten % von d', 'cost_pct', v => nf(v, 0) + ' %') + '</tbody>';
+}
+
+function renderCosts(s) {
+  const c = s.costs, r = s.rules, el = $('tCost');
+  if (!c || c.pct === null || !(s.size.lots > 0)) { el.textContent = ''; $('tSim').textContent = ''; return; }
+  const cls = c.pct > r.cost_max_pct ? 'neg' : c.pct > r.cost_warn_pct ? 'warn' : '';
+  el.innerHTML = `<span class="muted">${nf(c.total, s.prop.digits)} ·</span> <span class="${cls}">${nf(c.pct, 0)} % von d</span>`;
+  el.title = `Spread Prop ${nf(c.spread_p, s.prop.digits)}, Live ${nf(c.spread_l, s.live.digits)} + Kommissionen. ` +
+    `Live gewinnt bei Prop-SL ${nf(c.live_win, s.live.digits)} und verliert bei Prop-TP ${nf(c.live_loss, s.live.digits)}. ` +
+    `Warnung ab ${r.cost_warn_pct} %, Sperre ab ${r.cost_max_pct} %.`;
+  const f = s.ratios && s.ratios.fees;
+  $('tSim').textContent = f && r.hedge_ratio > 0 ? nf(f.prop + f.live / r.hedge_ratio) : '';
+  $('tSim').title = f && r.hedge_ratio > 0 ? `In den Simulator eintragen (aktuelle Positionsgröße): Prop Eval/Funded = 0, ` +
+    `Live-Konto (bei h = 1) = Prop-Kommission ${nf(f.prop)} + Live-Spread/-Kommission ${nf(f.live / r.hedge_ratio)}.` : '';
+}
+
+function renderMargin(s) {
+  const m = s.margin, use = s.rules.margin_max_use_pct;
+  if (!m || !(s.size.lots > 0)) { $('tMp').textContent = ''; $('tMl').textContent = ''; return; }
+  const lvl = x => x.threshold_money ? `Equity im schlechtesten Fall ${usd(x.equity_worst)} (Schwelle ${usd(x.threshold)})`
+    : `Margin-Level im schlechtesten Fall ${x.level_worst === null ? '–' : nf(x.level_worst, 0) + ' %'} (Schwelle ${nf(x.threshold, 0)} %)`;
+  for (const [id, x, ccy] of [['tMp', m.prop, s.prop.currency], ['tMl', m.live, s.live.currency]]) {
+    const bad = !x.ok || (x.usage_pct !== null && x.usage_pct > use);
+    const warn = x.usage_pct !== null && x.usage_pct > use * 0.75;
+    $(id).innerHTML = `${usd(x.required)} <span class="muted">${esc(ccy)} ·</span> <span class="${bad ? 'neg' : warn ? 'warn' : ''}">${x.usage_pct === null ? '–' : nf(x.usage_pct, 0) + ' %'}</span>`;
+    $(id).title = `Benötigte Margin in % der freien Margin (max. ${use} %). ${nf(x.per_lot)} pro Lot, ${lvl(x)}`;
+  }
+}
+
+function renderEod(s) {
+  const e = s.eod, el = $('eodTxt');
+  if (!e.enabled) { el.textContent = ''; return; }
+  const m = e.minutes_left, dur = m >= 60 ? nf(m / 60, 1) + ' h' : nf(m, 0) + ' min';
+  el.className = e.phase === 'open' ? '' : 'warn';
+  if (e.phase === 'weekend') {
+    el.textContent = `Wochenende · Öffnung in ${dur}`;
+    el.title = 'Markt geschlossen bis Sonntag 17:00 New York, keine neuen Hedges';
+  } else {
+    el.textContent = `${e.kind === 'weekend' ? 'Wochenend-Close' : 'NY-Close'} ${dur}`;
+    el.title = `${e.kind === 'weekend' ? 'Freitag ' : ''}${e.time} New York · Sperre ${e.block_min} min, Auto-Close ${e.close_min} min vorher`;
+  }
+}
+
+function renderAccounts(s) {
+  for (const [k, a] of [['P', s.prop], ['L', s.live]]) {
+    const acc = a.account;
+    $(`a${k}Eq`).textContent = usd(acc.equity);
+    $(`a${k}Bal`).textContent = usd(acc.balance);
+    $(`a${k}Fl`).innerHTML = colored(acc.equity - acc.balance);
+    $(`a${k}Real`).innerHTML = colored(a.realized);
+  }
+  const q = s.ratios, pl = q.planned, run = q.running;
+  const far = run !== null && pl && Math.abs(run / pl - 1) > 0.1;
+  $('aRun').innerHTML = `<span class="${far ? 'neg' : ''}">${ratioTxt(run)}</span> <span class="muted">/ ${ratioTxt(pl)}</span>`;
+  $('aRun').title = `Laufend (${q.track.scope === 'day' ? 'heute' : 'Challenge'}): geschlossene Hedges + offener P&L inkl. Kommission. ` +
+    `Prop ${usd(q.running_prop)}, Live ${usd(q.running_live)}`;
+  for (const [k, a] of [['P', s.prop], ['L', s.live]]) {
+    const acc = a.account;
+    $(`a${k}Ccy`).textContent = a.currency || '';
+    $(`a${k}Free`).textContent = usd(acc.margin_free);
+    $(`a${k}Free`).title = acc.margin_level ? `Margin-Level ${nf(acc.margin_level, 0)} % · Margin-Call ${nf(acc.margin_so_call, 0)} · Stop-Out ${nf(acc.margin_so_so, 0)}` : '';
+    $(`a${k}Lev`).textContent = acc.leverage ? `1:${acc.leverage}` : '–';
+  }
+  $('accEditBtn').hidden = s.mode !== 'mock';
+  if (s.mode !== 'mock') $('accForm').hidden = true;
+  renderScenarios(s);
+}
+
+function renderScenarios(s) {
+  const sc = s.scenarios;
+  if (!sc || !sc.rows.length) { $('scenBox').innerHTML = ''; return; }
+  const lim = s.rooms;
+  $('scenBox').innerHTML = sc.rows.map(r => {
+    const bad = r.prop_day_after < -lim.dd_limit || r.prop_day_after > lim.consistency_limit;
+    return `<div class="sc">
+      <div class="h"><span><b>${r.key === 'prop_sl' ? 'Prop SL' : 'Prop TP'}</b>${sc.basis === 'planned' ? ' · nächster Hedge' : ''}</span>
+        <span title="Prop + Live, Live in ${esc(s.prop.currency)} umgerechnet">Netto ${colored(r.net)} ${esc(s.prop.currency)}</span></div>
+      <table class="kv"><tbody>
+        <tr><th><span class="dot p"></span>Prop</th><td>${usd(r.prop_balance)}</td><td>${colored(r.prop_delta)}</td></tr>
+        <tr><th><span class="dot l"></span>Live</th><td>${usd(r.live_balance)}</td><td>${colored(r.live_delta)}</td></tr>
+      </tbody></table>
+      <div class="f">
+        <span title="Realisierter Tages-P&L Prop danach">Tag <span class="${bad ? 'neg' : 'dim'}">${signed(r.prop_day_after)}${bad ? ' · Limit!' : ''}</span></span>
+        <span title="Realisierte Hedge Ratio heute, wenn dieses Szenario eintritt (inkl. Kommissionen beider Konten und Swap)">Ratio danach <span class="dim">${ratioTxt(r.ratio)}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderRatios(s) {
+  const q = s.ratios, pl = q.planned;
+  const off = v => v !== null && v !== undefined && pl && Math.abs(v / pl - 1) > 0.1;
+  $('rPlan').textContent = ratioTxt(pl);
+  const fee = s.rules.hedge_mode === 'fee', nx = fee ? q.next_gross : q.next;
+  $('rNext').parentElement.title = (fee ? `Kursbewegung Live ÷ Prop nach Lot-Rundung ${ratioTxt(q.next_gross)}. ` : '') +
+    `Netto inkl. Spread und Kommissionen: bei Prop-SL ${ratioTxt(q.next)}, bei Prop-TP ${ratioTxt(q.next_tp)}.`;
+  $('rNext').innerHTML = `<span class="${off(nx) ? 'neg' : ''}">${ratioTxt(nx)}</span>`;
+  $('rOpen').innerHTML = `<span class="${off(q.open_volume) ? 'neg' : ''}">${ratioTxt(q.open_volume)}</span>`;
+  $('rOpen').parentElement.title = q.open_volume === null ? '' : `Nach Volumen ${ratioTxt(q.open_volume)}, nach aktuellem P&L ${ratioTxt(q.open_pnl)}`;
+  const tr = q.track, scopeTxt = tr.scope === 'day' ? 'heute' : (tr.since ? `seit ${tr.since}` : 'gesamt');
+  $('rRealLbl').textContent = tr.scope === 'day' ? 'Heute' : 'Gesamt';
+  $('rReal').innerHTML = `<span class="${off(q.realized) ? 'neg' : ''}">${ratioTxt(q.realized)}</span>`;
+  $('rReal').parentElement.title = `Realisiert ${scopeTxt}: Prop ${usd(tr.prop)}, Live ${usd(tr.live)}. ` +
+    `Live ${tr.deviation >= 0 ? 'vor' : 'hinter'} dem Ziel: ${signed(tr.deviation)}`;
+  const base = tr.base_lots, diff = s.hedge_lots - base;
+  $('corrTxt').innerHTML = s.rules.ratio_correction && s.size.lots > 0 && Math.abs(diff) > 1e-9
+    ? `Ausgleich Live ${diff > 0 ? '+' : '−'}${nf(Math.abs(diff), 2)} Lots <span class="muted">· ${tr.deviation < 0 ? 'Rückstand' : 'Vorsprung'} ${nf(Math.abs(tr.deviation))} → ${signed(q.next_dev)} bei SL / ${signed(q.next_dev_tp)} bei TP</span>`
+    : '';
+  $('corrTxt').title = `Abweichung bisher ${signed(tr.deviation)} (Live ${tr.deviation >= 0 ? 'vor' : 'hinter'} dem Ziel). ` +
+    `Ohne Ausgleich ${nf(base, 2)} Lots, mit Ausgleich ${nf(s.hedge_lots, 2)} Lots.`;
+}
+
+function legCell(l, digits) {
+  if (!l) return '<span class="muted">–</span>';
+  return `${sideTxt(l.side)} ${nf(l.volume, 2)} @ ${nf(l.entry, digits)} ${colored(l.profit)}${l.live_open ? '' : ' <span class="muted">zu</span>'}
+    <br><span class="muted">SL ${nf(l.sl, digits)} · TP ${nf(l.tp, digits)}</span>`;
+}
+
+function renderOpen(s) {
+  const rows = s.pairs.map(t => {
+    const p = t.legs.find(l => l.account === 'prop'), l = t.legs.find(l => l.account === 'live');
+    return `<tr>
+      <td>#${t.id}<br><span class="muted">${esc(t.opened_at.slice(11, 16))}</span></td>
+      <td><span class="dot p"></span>${legCell(p, s.prop.digits)}</td>
+      <td><span class="dot l"></span>${legCell(l, s.live.digits)}</td>
+      <td>${ratioTxt(t.ratio_actual)}<br><span class="muted">Plan ${nf(t.hedge_ratio, 2)}</span></td>
+      <td>${colored(t.net)}</td>
+      <td><button class="btn" type="button" data-close="${t.id}">Schließen</button></td>
+    </tr>`;
+  }).join('');
+  const ext = s.unmanaged.map(p => `<tr class="muted">
+      <td>extern</td><td colspan="2">${p.account === 'prop' ? 'Prop' : 'Live'} · ${esc(p.symbol)} ${sideTxt(p.side)} ${nf(p.volume, 2)} @ ${nf(p.price_open, dg(p.account))}</td>
+      <td></td><td>${colored(p.profit)}</td><td></td></tr>`).join('');
+  $('tabOpen').innerHTML = (rows || ext)
+    ? `<table class="tbl"><thead><tr><th>Hedge</th><th>Prop</th><th>Live</th><th>Ratio</th><th>Netto</th><th></th></tr></thead><tbody>${rows}${ext}</tbody></table>`
+    : '<p class="empty">Keine offenen Hedges</p>';
+}
+
+async function loadJournal() {
+  try {
+    const h = await api('/api/history' + (journalDay ? `?day=${journalDay}` : ''));
+    const rows = h.positions.map(p => `<tr>
+      <td>${esc(p.opened_at)}</td><td><span class="dot ${p.account === 'prop' ? 'p' : 'l'}"></span>${p.account === 'prop' ? 'Prop' : 'Live'}</td>
+      <td>#${p.trade_id}</td><td>${esc(p.symbol)}</td><td>${sideTxt(p.side)} ${nf(p.volume, 2)}</td>
+      <td>${nf(p.entry, dg(p.account))}</td><td>${nf(p.sl, dg(p.account))} · ${nf(p.tp, dg(p.account))}</td>
+      <td>${p.status === 'open' ? 'offen' : esc(p.close_reason || 'zu')}</td>
+      <td>${p.pnl === null ? '–' : colored(p.pnl)}</td></tr>`).join('');
+    const days = [...new Set(h.summary.map(x => x.trading_day))];
+    const sum = days.map(d => {
+      const g = h.summary.filter(x => x.trading_day === d);
+      const part = g.map(x => `<span class="dot ${x.account === 'prop' ? 'p' : 'l'}"></span>${signed(x.pnl)}`).join(' ');
+      return `<button type="button" data-day="${esc(d)}">${esc(d.slice(5))} ${part}</button>`;
+    }).join('');
+    $('tabJournal').innerHTML = (sum ? `<div class="days">${sum}</div>` : '') + (rows
+      ? `<table class="tbl"><thead><tr><th>Eröffnet</th><th>Konto</th><th>Hedge</th><th>Symbol</th><th>Position</th><th>Entry</th><th>SL · TP</th><th>Status</th><th>P&amp;L</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<p class="empty">Keine Positionen am ${esc(h.day)}</p>`);
+  } catch (e) {
+    $('tabJournal').innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+  }
+}
+
+function render(s) {
+  if (s.error) {
+    $('conn').textContent = 'Broker-Fehler';
+    $('conn').title = s.error;
+    $('conn').className = 'err';
+    return;
+  }
+  st = s;
+  if (s.prop.digits !== digits) {
+    digits = s.prop.digits;
+    candles.applyOptions({priceFormat: {type: 'price', precision: digits, minMove: Math.pow(10, -digits)}});
+  }
+  $('conn').textContent = 'Live';
+  $('conn').title = s.price_dev_pct !== null ? `Preisabweichung Prop/Live ${nf(s.price_dev_pct, 3)} %` : '';
+  $('conn').className = 'ok';
+  $('mode').textContent = s.mode === 'mock' ? 'Sim' : '';
+  renderAssets(s);
+  $('lSym').textContent = s.live.symbol !== s.prop.symbol ? s.live.symbol : '';
+  $('pPx').textContent = nf(s.prop.tick.bid, s.prop.digits);
+  $('lPx').textContent = nf(s.live.tick.bid, s.live.digits);
+  onTick(s);
+  drawLines(s);
+  renderEod(s);
+  fillRulesForm(s.rules);
+  renderAccounts(s);
+  renderBudget(s);
+  renderTicket(s);
+  renderOpen(s);
+}
+
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onmessage = e => render(JSON.parse(e.data));
+  ws.onclose = () => {
+    $('conn').textContent = 'Getrennt';
+    $('conn').className = 'err';
+    setTimeout(connect, 1000);
+  };
+}
+
+async function enter() {
+  if (busy) return;
+  busy = true;
+  $('openBtn').disabled = true;
+  try {
+    const r = await api('/api/enter', {method: 'POST'});
+    const legs = r.legs.map(l => `<span class="dot ${l.account === 'prop' ? 'p' : 'l'}"></span>${sideTxt(l.side)} ${nf(l.volume, 2)} @ ${nf(l.entry, dg(l.account))}`).join('<br>');
+    toast(`Hedge #${r.trade_id}<br>${legs}${r.warnings.length ? '<br>' + r.warnings.map(esc).join('<br>') : ''}`, r.warnings.length > 0);
+    (r.info || []).forEach(m => toast(esc(m)));
+  } catch (e) {
+    toast((e.list || [e.message]).map(esc).join('<br>'), true);
+  } finally {
+    busy = false;
+  }
+}
+
+// Das Formular zeigt immer den aktuellen Server-Stand, außer während man darin tippt (rulesDirty).
+// Gespeichert wird: aktueller Server-Stand + nur die Formularwerte (beim Absenden) + der Patch.
+// So überschreibt ein altes Formular nie automatisch gelernte Werte (z. B. Kommission).
+let rulesDirty = false;
+function readRulesForm() {
+  const out = {};
+  for (const el of $('rulesForm').elements) {
+    if (!el.name) continue;
+    out[el.name] = el.type === 'checkbox' ? el.checked : (el.type === 'time' || el.tagName === 'SELECT') ? el.value : Number(el.value);
+  }
+  return out;
+}
+function fillRulesForm(r) {
+  if (rulesDirty || $('rulesForm').contains(document.activeElement)) return;
+  for (const el of $('rulesForm').elements) {
+    if (!el.name || !(el.name in r)) continue;
+    if (el.type === 'checkbox') el.checked = !!r[el.name];
+    else if (String(el.value) !== String(r[el.name])) el.value = r[el.name];
+  }
+}
+async function saveRules(patch = {}, fromForm = false) {
+  const base = await api('/api/rules');
+  const body = {...base, ...(fromForm ? readRulesForm() : {}), ...patch};
+  try {
+    const saved = await api('/api/rules', {method: 'PUT', body: JSON.stringify(body)});
+    if (fromForm) { rulesDirty = false; $('rulesSave').classList.remove('dirty'); }
+    fillRulesForm(saved);
+    toast('Gespeichert');
+  } catch (e) {
+    toast('Nicht gespeichert: ' + esc(e.message), true);
+  }
+}
+
+async function init() {
+  const r = await api('/api/rules');
+  fillRulesForm(r);
+  $('fDist').value = r.sl_distance;
+  await loadCandles();
+  api('/api/state').then(s => { if (!st) render(s); }).catch(() => {});
+  connect();
+}
+
+$('rulesForm').addEventListener('submit', e => { e.preventDefault(); saveRules({}, true); });
+$('rulesForm').addEventListener('input', e => {
+  // Checkboxen und Auswahlfelder sofort speichern, Zahlen erst mit „Speichern“
+  if (e.target.type === 'checkbox' || e.target.tagName === 'SELECT') return;
+  rulesDirty = true;
+  $('rulesSave').classList.add('dirty');
+});
+$('rulesForm').addEventListener('change', e => {
+  const el = e.target;
+  if (!el.name || !(el.type === 'checkbox' || el.tagName === 'SELECT')) return;
+  saveRules({[el.name]: el.type === 'checkbox' ? el.checked : el.value});
+});
+$('rulesBox').addEventListener('toggle', () => {
+  // Zuklappen verwirft ungespeicherte Änderungen, damit das Formular wieder den Server-Stand zeigt
+  if (!$('rulesBox').open) { rulesDirty = false; $('rulesSave').classList.remove('dirty'); if (st) fillRulesForm(st.rules); }
+});
+$('ratioReset').addEventListener('click', async () => {
+  if (!confirm('Neue Challenge ab jetzt: Ratio-Zählung, Trailing-Max-Loss und gelernte Kommissionen ' +
+               '(werden beim nächsten Hedge neu erkannt) starten neu. Fortfahren?')) return;
+  try {
+    const r = await api('/api/ratio/reset', {method: 'POST'});
+    rulesDirty = false;
+    toast(`Neue Challenge ab ${esc(r.since)}, Kommissionen zurückgesetzt`);
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+});
+$('fDist').addEventListener('change', () => {
+  const v = Number($('fDist').value);
+  if (v > 0) saveRules({sl_distance: v});
+});
+$('openBtn').addEventListener('click', enter);
+$('openBtn').addEventListener('mouseenter', () => { hoverOpen = true; if (st) drawLines(st); });
+$('openBtn').addEventListener('mouseleave', () => { hoverOpen = false; if (st) drawLines(st); });
+$('accEditBtn').addEventListener('click', () => {
+  const f = $('accForm');
+  f.hidden = !f.hidden;
+  if (!f.hidden && st) {
+    f.prop_balance.value = st.prop.account.balance;
+    f.live_balance.value = st.live.account.balance;
+    f.prop_realized.value = st.prop.realized;
+    f.live_realized.value = st.live.realized;
+  }
+});
+$('accForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, num = el => el.value === '' ? null : Number(el.value);
+  const body = {
+    prop: {balance: num(f.prop_balance), realized_today: num(f.prop_realized)},
+    live: {balance: num(f.live_balance), realized_today: num(f.live_realized)}
+  };
+  try {
+    await api('/api/accounts', {method: 'PUT', body: JSON.stringify(body)});
+    toast('Übernommen');
+    f.hidden = true;
+  } catch (err) {
+    toast('Nicht übernommen: ' + esc(err.message), true);
+  }
+});
+$('tfs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tf]');
+  if (!b) return;
+  tf = b.dataset.tf;
+  document.querySelectorAll('#tfs button[data-tf]').forEach(x => x.classList.toggle('on', x === b));
+  loadCandles();
+});
+document.querySelector('.tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (!b) return;
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('tabOpen').hidden = b.dataset.tab !== 'open';
+  $('tabJournal').hidden = b.dataset.tab !== 'journal';
+  if (b.dataset.tab === 'journal') loadJournal();
+});
+$('tabJournal').addEventListener('click', e => {
+  const b = e.target.closest('button[data-day]');
+  if (b) { journalDay = b.dataset.day; loadJournal(); }
+});
+$('tabOpen').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-close]');
+  if (!b) return;
+  if (!confirm(`Hedge #${b.dataset.close} schließen? Prop und Live werden zum Marktpreis geschlossen.`)) return;
+  b.disabled = true;
+  try {
+    await api(`/api/trades/${b.dataset.close}/close`, {method: 'POST'});
+    toast(`Hedge #${b.dataset.close} geschlossen`);
+  } catch (err) {
+    toast('Schließen fehlgeschlagen: ' + esc(err.message), true);
+    b.disabled = false;
+  }
+});
+
+let armTimer = null;
+$('panic').addEventListener('click', async () => {
+  const b = $('panic');
+  if (!b.classList.contains('armed')) {
+    b.classList.add('armed');
+    b.textContent = 'Wirklich?';
+    armTimer = setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Alles schließen'; }, 3000);
+    return;
+  }
+  clearTimeout(armTimer);
+  b.classList.remove('armed');
+  b.textContent = 'Schließe…';
+  b.disabled = true;
+  try {
+    const r = await api('/api/panic', {method: 'POST'});
+    const bad = [...r.prop, ...r.live].filter(x => !x.ok);
+    toast(bad.length ? `Nicht alles geschlossen: ${bad.map(x => esc(x.comment)).join(', ')}` : 'Alles geschlossen', bad.length > 0);
+  } catch (e) {
+    toast('Fehlgeschlagen: ' + esc(e.message), true);
+  } finally {
+    b.disabled = false;
+    b.textContent = 'Alles schließen';
+  }
+});
+setInterval(() => { if (!$('tabJournal').hidden) loadJournal(); }, 5000);
+
+// ---- Asset-Auswahl im Header ----
+let assetSig = '';
+const assetKey = a => a.prop + '|' + a.live;
+const assetName = a => a.prop === a.live ? a.prop : `${a.prop} ↔ ${a.live}`;
+function renderAssets(s) {
+  const sel = $('assetSel'), cur = assetKey({prop: s.prop.symbol, live: s.live.symbol});
+  const sig = JSON.stringify(s.assets) + cur;
+  if (sig !== assetSig && document.activeElement !== sel) {
+    assetSig = sig;
+    sel.innerHTML = s.assets.map(a => `<option value="${esc(assetKey(a))}">${esc(assetName(a))}</option>`).join('') +
+      '<option value="__new">+ Asset hinzufügen</option>';
+    sel.value = cur;
+    $('aSaved').innerHTML = s.assets.map(a => `<li><span>${esc(assetName(a))}</span>
+      <span class="muted">±${nf(a.sl_distance, 5).replace(/0+$/, '').replace(/,$/, '')}</span>
+      ${assetKey(a) === cur ? '<span class="muted">aktiv</span>' : `<button class="xs" type="button" title="Entfernen" data-rm="${esc(assetKey(a))}">✕</button>`}</li>`).join('');
+  }
+  const open = s.pairs.length > 0;
+  sel.disabled = open || busy;
+  sel.title = open ? 'Erst alle offenen Hedges schließen' : '';
+}
+$('assetSel').addEventListener('change', async () => {
+  const sel = $('assetSel'), cur = assetKey({prop: st.prop.symbol, live: st.live.symbol});
+  if (sel.value === '__new') {
+    sel.value = cur;
+    $('assetBox').open = true;
+    $('assetBox').scrollIntoView({behavior: 'smooth', block: 'start'});
+    $('aProp').focus();
+    return;
+  }
+  if (sel.value === cur) return;
+  const [p, l] = sel.value.split('|');
+  sel.disabled = true;
+  try {
+    const r = await api('/api/symbols', {method: 'PUT', body: JSON.stringify({prop: p, live: l})});
+    toast(esc(assetName({prop: p, live: l})) + (r.warnings.length ? '<br>' + r.warnings.map(esc).join('<br>') : ''), r.warnings.length > 0);
+    lineSig = '';
+    await loadCandles();
+  } catch (e) {
+    toast((e.list || [e.message]).map(esc).join('<br>'), true);
+    sel.value = cur;
+  } finally {
+    assetSig = '';
+  }
+});
+$('aSaved').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-rm]');
+  if (!b) return;
+  const [p, l] = b.dataset.rm.split('|');
+  try {
+    await api(`/api/assets?prop=${encodeURIComponent(p)}&live=${encodeURIComponent(l)}`, {method: 'DELETE'});
+    assetSig = '';
+  } catch (err) {
+    toast(esc(err.message), true);
+  }
+});
+
+// ---- Asset prüfen / hinzufügen ----
+let aChecked = null, aEditedLive = false;
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+async function fillList(account, input, list) {
+  const q = input.value.trim();
+  if (!q) return;
+  try {
+    const r = await api(`/api/symbols?account=${account}&q=${encodeURIComponent(q)}`);
+    $(list).innerHTML = r.map(x => `<option value="${esc(x.name)}">${esc(x.description)}${x.trade_mode === 4 ? '' : ' (gesperrt)'}</option>`).join('');
+  } catch (e) { /* Vorschläge sind optional */ }
+}
+function aReset() { aChecked = null; $('aApply').disabled = true; }
+$('aProp').addEventListener('input', debounce(() => fillList('prop', $('aProp'), 'dlProp'), 250));
+$('aLive').addEventListener('input', debounce(() => fillList('live', $('aLive'), 'dlLive'), 250));
+$('aLive').addEventListener('input', () => { aEditedLive = true; aReset(); });
+$('aDist').addEventListener('input', aReset);
+$('aProp').addEventListener('change', async () => {
+  aReset();
+  if (aEditedLive && $('aLive').value) return;
+  try {
+    const m = await api(`/api/symbols/match?prop=${encodeURIComponent($('aProp').value.trim())}`);
+    $('dlLive').innerHTML = m.map(x => `<option value="${esc(x.name)}">${esc(x.description)}</option>`).join('');
+    if (m.length) $('aLive').value = m[0].name;
+  } catch (e) { /* ignorieren */ }
+});
+$('assetBox').addEventListener('toggle', () => {
+  if (!$('assetBox').open || !st) return;
+  $('aProp').value = st.prop.symbol;
+  $('aLive').value = st.live.symbol;
+  $('aDist').value = st.rules.sl_distance;
+  $('aDev').value = st.rules.max_price_dev_pct;
+  aEditedLive = false;
+  aReset();
+  $('aResult').innerHTML = '';
+});
+const chkRow = (label, f, d) => `<tr><th>${label}</th><td>${f(d.prop)}</td><td>${f(d.live)}</td></tr>`;
+$('aCheck').addEventListener('click', async () => {
+  aReset();
+  const p = $('aProp').value.trim(), l = $('aLive').value.trim();
+  if (!p || !l) { toast('Beide Symbole angeben', true); return; }
+  const dev = Number($('aDev').value);
+  if (st && dev > 0 && dev !== st.rules.max_price_dev_pct) await saveRules({max_price_dev_pct: dev});
+  $('aResult').innerHTML = '<p class="meta">Prüfe…</p>';
+  try {
+    const r = await api(`/api/symbols/check?prop=${encodeURIComponent(p)}&live=${encodeURIComponent(l)}`);
+    const tbl = r.prop && r.live ? `<table class="kv chkTbl"><thead><tr><th></th><th>Prop</th><th>Live</th></tr></thead><tbody>
+      ${chkRow('Name', x => `<span title="${esc(x.description)}">${esc(x.symbol)}</span>`, r)}
+      ${chkRow('Handel', x => `<span class="${x.trade_mode === 4 ? '' : 'neg'}">${esc(x.trade_mode_txt)}</span>`, r)}
+      ${chkRow('Bid', x => nf(x.bid, x.digits), r)}
+      ${chkRow('Währung', x => esc(x.currency_profit), r)}
+      ${chkRow('Wert/Pkt/Lot', x => nf(x.value_per_point_lot, 2), r)}
+      ${chkRow('Min / Step', x => `${nf(x.vol_min, 2)} / ${nf(x.vol_step, 2)}`, r)}
+      <tr><th>Abweichung</th><td colspan="2">${r.deviation_pct !== undefined ? nf(r.deviation_pct, 3) + ' %' : '–'}</td></tr>
+      </tbody></table>` : '';
+    $('aResult').innerHTML = tbl +
+      (r.errors.length ? `<ul class="viol">${r.errors.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '') +
+      (r.warnings.length ? `<ul class="viol" style="color:var(--prop)">${r.warnings.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '') +
+      (r.ok ? '<p class="meta pos">OK</p>' : '');
+    if (r.ok) { aChecked = {p, l}; $('aApply').disabled = false; }
+  } catch (e) {
+    $('aResult').innerHTML = `<ul class="viol"><li>${esc(e.message)}</li></ul>`;
+  }
+});
+$('aApply').addEventListener('click', async () => {
+  const p = $('aProp').value.trim(), l = $('aLive').value.trim(), d = Number($('aDist').value);
+  if (!aChecked || aChecked.p !== p || aChecked.l !== l) { aReset(); toast('Erst erneut prüfen', true); return; }
+  if (!(d > 0)) { toast('SL/TP-Abstand angeben', true); return; }
+  $('aApply').disabled = true;
+  try {
+    await api('/api/symbols', {method: 'PUT', body: JSON.stringify({prop: p, live: l, sl_distance: d})});
+    toast(esc(assetName({prop: p, live: l})));
+    $('fDist').value = d;
+    lineSig = '';
+    $('assetBox').open = false;
+    await loadCandles();
+  } catch (e) {
+    toast((e.list || [e.message]).map(esc).join('<br>'), true);
+    aReset();
+  }
+});
+
+// ================= Simulator =================
+const SIM_DEFAULTS = {A: 50000, C: 319, r: 0.02, T_E: 0.10, D_E: 0.10, T_F: 0.08, D_F: 0.04, f_E: 5, f_EF: 0, f_L: 0,
+  phi: 1, q: 1, C_F: 0, funded_scaled: true, exact_fees: true, metric: 'sortino', step: 0.05,
+  dd_mode_E: 'static', dd_mode_F: 'static', trail_lock: false, trades_per_day: 2, mc_paths: 20000,
+  max_r_enabled: true, max_r: 0.015, two_step: false, T_E2: 0.05, D_E2: 0.10, dd_mode_E2: 'static', refund_fee: false};
+const simState = {mode: 'optimize', res: null, hE: 0.15, hE2: 0.15, hF: 0.65, fHE: 0.15, fHE2: 0.15, fStatus: '0', fPE: ''};
+function syncTwoStep() {
+  const two = $('simForm').two_step.checked;
+  document.body.classList.toggle('two-step', two);
+  $('step2Fields').hidden = !two;
+  $('evalTitle').textContent = two ? 'Step 1' : 'Evaluation';
+  document.querySelectorAll('.lblE1').forEach(el => { el.innerHTML = two ? 'h<sub>1</sub>' : 'h<sub>E</sub>'; });
+}
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* optional */ } }
+};
+const money = (v, d = 0) => v === null || v === undefined || isNaN(v) ? '–' : (v < 0 ? '−' : '') + '$' + nf(Math.abs(v), d);
+const pctTxt = (v, d = 1) => v === null || v === undefined || isNaN(v) ? '–' : nf(v * 100, d) + ' %';
+const hTxt = v => v === null || v === undefined ? '–' : nf(v, 2);
+
+function simParams() {
+  const f = $('simForm'), p = {};
+  for (const el of f.elements) {
+    if (!el.name) continue;
+    if (el.type === 'checkbox') p[el.name] = el.checked;
+    else if (el.name === 'funded_scaled') p[el.name] = el.value === '1';
+    else if (['metric', 'dd_mode_E', 'dd_mode_E2', 'dd_mode_F'].includes(el.name)) p[el.name] = el.value;
+    else p[el.name] = Number(el.value) / (el.dataset.pct !== undefined ? 100 : 1);
+  }
+  return p;
+}
+function fillSim(p) {
+  for (const el of $('simForm').elements) {
+    if (!el.name || !(el.name in p)) continue;
+    if (el.type === 'checkbox') el.checked = !!p[el.name];
+    else if (el.name === 'funded_scaled') el.value = p[el.name] ? '1' : '0';
+    else if (['metric', 'step', 'dd_mode_E', 'dd_mode_E2', 'dd_mode_F'].includes(el.name)) el.value = String(p[el.name]);
+    else el.value = el.dataset.pct !== undefined ? +(p[el.name] * 100).toFixed(6) : p[el.name];
+  }
+}
+
+const VIRIDIS = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+function viridis(t) {
+  t = Math.max(0, Math.min(1, t)) * (VIRIDIS.length - 1);
+  const i = Math.min(Math.floor(t), VIRIDIS.length - 2), f = t - i, a = VIRIDIS[i], b = VIRIDIS[i + 1];
+  return `rgb(${a.map((x, k) => Math.round(x + (b[k] - x) * f)).join(',')})`;
+}
+
+const HM = {l: 42, r: 8, t: 8, b: 30};
+function drawHeat(res) {
+  const cv = $('heat'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = 360;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const ax = res.axis, n = ax.length, pw = w - HM.l - HM.r, ph = h - HM.t - HM.b, cw = pw / n, ch = ph / n;
+  // Farbe nach Rang statt linear: die Sortino-Ratio steigt am Optimum sehr steil an, linear wäre fast alles dunkel
+  const vals = res.grid.flat().filter(v => v !== null && isFinite(v)).sort((a, b) => a - b);
+  const lo = vals[0], hi = vals[vals.length - 1];
+  const rank = v => { let a = 0, b = vals.length - 1; while (a < b) { const m = (a + b) >> 1; if (vals[m] < v) a = m + 1; else b = m; } return vals.length > 1 ? a / (vals.length - 1) : 1; };
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const v = res.grid[i][j];
+    g.fillStyle = v === null || !isFinite(v) ? '#2a2f3a' : viridis(rank(v));
+    g.fillRect(HM.l + j * cw, HM.t + (n - 1 - i) * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
+  }
+  g.fillStyle = C.muted; g.font = '11px IBM Plex Sans, sans-serif'; g.textAlign = 'center';
+  const ticks = [0, 0.25, 0.5, 0.75, 1].filter(t => t <= ax[n - 1] + 1e-9);
+  for (const t of ticks) {
+    const k = t / ax[n - 1];
+    g.fillText(nf(t, 2), HM.l + k * (pw - cw) + cw / 2, h - 12);
+    g.textAlign = 'right'; g.fillText(nf(t, 2), HM.l - 6, HM.t + (1 - k) * (ph - ch) + ch / 2 + 4); g.textAlign = 'center';
+  }
+  const two = res.two_step;
+  g.fillText(two ? 'h_2 (Step 2)' : 'h_F (Funded)', HM.l + pw / 2, h - 0.5);
+  g.save(); g.translate(10, HM.t + ph / 2); g.rotate(-Math.PI / 2); g.fillText(two ? 'h_1 (Step 1)' : 'h_E (Eval)', 0, 0); g.restore();
+  const mark = (he, hf, color, r) => {
+    const j = hf / ax[n - 1] * (n - 1), i = he / ax[n - 1] * (n - 1);
+    const x = HM.l + j * cw + cw / 2, y = HM.t + (n - 1 - i) * ch + ch / 2;
+    g.strokeStyle = color; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); g.stroke();
+  };
+  const xOf = m => two ? m.hE2 : m.hF;
+  mark(res.best.hE, xOf(res.best), '#ffffff', 7);
+  if (res.mode === 'custom') mark(res.selected.hE, xOf(res.selected), C.neg, 5);
+  $('legMin').textContent = nf(lo, 2); $('legMax').textContent = nf(hi, 2);
+  cv._geo = {n, cw, ch, ax};
+}
+function heatCell(e) {
+  const cv = $('heat'), g = cv._geo, res = simState.res;
+  if (!g || !res || !res.grid) return null;
+  const rect = cv.getBoundingClientRect(), x = e.clientX - rect.left - HM.l, y = e.clientY - rect.top - HM.t;
+  const j = Math.floor(x / g.cw), i = g.n - 1 - Math.floor(y / g.ch);
+  if (i < 0 || j < 0 || i >= g.n || j >= g.n) return null;
+  const two = res.two_step;
+  return {i, j, hE: g.ax[i], hE2: two ? g.ax[j] : null, hF: two ? res.grid_hf[i][j] : g.ax[j], two,
+    v: res.grid[i][j], x: e.clientX - rect.left, y: e.clientY - rect.top};
+}
+$('heat').addEventListener('mousemove', e => {
+  const c = heatCell(e), tip = $('heatTip');
+  if (!c) { tip.style.display = 'none'; return; }
+  tip.style.display = 'block'; tip.style.left = c.x + 'px'; tip.style.top = c.y + 'px';
+  tip.textContent = c.two ? `h_1 ${hTxt(c.hE)} · h_2 ${hTxt(c.hE2)} · bestes h_F ${hTxt(c.hF)} · ${c.v === null ? '–' : nf(c.v, 2)}`
+    : `h_E ${hTxt(c.hE)} · h_F ${hTxt(c.hF)} · ${c.v === null ? '–' : nf(c.v, 2)}`;
+});
+$('heat').addEventListener('mouseleave', () => { $('heatTip').style.display = 'none'; });
+$('heat').addEventListener('click', e => {
+  const c = heatCell(e);
+  if (!c) return;
+  simState.hE = c.hE; simState.hF = c.hF;
+  if (c.two) simState.hE2 = c.hE2;
+  setSimMode('custom');
+});
+
+function drawCurve(res) {
+  const svg = $('curve'), W = 560, H = 360, L = 56, R = 12, T = 14, B = 34, sel = res.selected;
+  const xs = res.curve.map(c => c.hF), keys = Object.keys(res.curve[0].paths);
+  const all = res.curve.flatMap(c => keys.map(k => c.paths[k]));
+  let lo = Math.min(...all, 0), hi = Math.max(...all, 0);
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const X = v => L + (v - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  const col = {FE: C.muted, FE1: C.muted, FE2: C.live, PO: C.pos, DEN: C.prop, FF: C.neg};
+  const name = {FE: 'Eval verloren', FE1: 'Step 1 verloren', FE2: 'Step 2 verloren', PO: 'Payout', DEN: 'Payout verweigert', FF: 'Funded verloren'};
+  let o = `<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="${C.muted}" stroke-dasharray="3 3" stroke-width="1"/>`;
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4;
+    o += `<text x="${L - 6}" y="${Y(v) + 4}" fill="${C.muted}" font-size="11" text-anchor="end">${money(v)}</text>`;
+  }
+  for (const t of [0, 0.25, 0.5, 0.75, 1].filter(t => t <= xs[xs.length - 1] + 1e-9))
+    o += `<text x="${X(t)}" y="${H - 14}" fill="${C.muted}" font-size="11" text-anchor="middle">${nf(t, 2)}</text>`;
+  o += `<text x="${(L + W - R) / 2}" y="${H - 1}" fill="${C.muted}" font-size="11" text-anchor="middle">h_F (Funded)</text>`;
+  o += `<line x1="${X(sel.hF)}" x2="${X(sel.hF)}" y1="${T}" y2="${H - B}" stroke="#fff" stroke-width="1" opacity=".5"/>`;
+  let ly = T + 4;
+  for (const k of keys) {
+    const pts = res.curve.map(c => `${X(c.hF).toFixed(1)},${Y(c.paths[k]).toFixed(1)}`).join(' ');
+    o += `<polyline points="${pts}" fill="none" stroke="${col[k]}" stroke-width="2"/>`;
+    o += `<rect x="${L + 10}" y="${ly}" width="10" height="2" fill="${col[k]}"/><text x="${L + 26}" y="${ly + 5}" fill="${C.text}" font-size="11">${name[k]}</text>`;
+    ly += 16;
+  }
+  o += `<text x="${X(sel.hF) + (sel.hF > 0.8 ? -6 : 6)}" y="${H - B - 6}" fill="#fff" font-size="11" text-anchor="${sel.hF > 0.8 ? 'end' : 'start'}">h_F ${hTxt(sel.hF)}</text>`;
+  svg.innerHTML = o;
+}
+
+function drawTree(m, afterEval) {
+  const svg = $('tree'), node = (x, y, title, sub, pnl, terminal) => {
+    const w = 128, h = 52, cls = pnl === null ? C.text : pnl >= 0 ? C.pos : C.neg;
+    return `<g><rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="6" fill="${terminal ? '#1E2430' : '#181D25'}" stroke="${terminal ? cls : '#2D3542'}" stroke-opacity="${terminal ? .55 : 1}"/>
+      <text x="${x}" y="${y - 6}" fill="${C.dim || C.muted}" font-size="12" text-anchor="middle">${title}</text>
+      <text x="${x}" y="${y + 14}" fill="${cls}" font-size="15" font-weight="500" text-anchor="middle">${sub}</text></g>`;
+  };
+  const edge = (x1, y1, x2, y2, p) => `<path d="M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}" fill="none" stroke="#2D3542" stroke-width="1.5"/>
+    <text x="${(x1 + x2) / 2 + (x2 >= x1 ? 6 : -6)}" y="${(y1 + y2) / 2}" fill="${C.muted}" font-size="12" text-anchor="${x2 >= x1 ? 'start' : 'end'}">${pctTxt(p)}</text>`;
+  const P = Object.fromEntries(m.paths.map(x => [x.key, x])), hasDen = !!P.DEN;
+  let o = '';
+  if (!afterEval && m.stages && m.stages.length > 1) {
+    // 2-Step: Start -> Step 1 -> Step 2 -> Funded
+    const [s1, s2] = m.stages;
+    o += edge(200, 56, 70, 104, 1 - s1.p) + edge(200, 56, 290, 104, s1.p);
+    o += edge(290, 156, 190, 204, 1 - s2.p) + edge(290, 156, 380, 204, s2.p);
+    o += node(200, 30, 'Start', `Preis ${money(-simParams().C)}`, null, false);
+    o += node(70, 130, 'Step 1 verloren', money(s1.pi_fail), s1.pi_fail, true);
+    o += node(290, 130, 'Step 1 bestanden', `Stand ${money(s1.pi_pass)}`, s1.pi_pass, false);
+    o += node(190, 230, 'Step 2 verloren', money(s2.pi_fail), s2.pi_fail, true);
+    const kids2 = [['PO', 'Payout', m.pi_po], ...(hasDen ? [['DEN', 'verweigert', m.pi_den]] : []), ['FF', 'Funded verloren', m.pi_ff]];
+    const xs2 = hasDen ? [130, 265, 400] : [250, 400];
+    kids2.forEach(([k], i) => { if (P[k]) o += edge(380, 256, xs2[i], 304, P[k].p / m.pE); });
+    o += node(380, 230, 'Step 2 bestanden', `Stand ${money(m.pi_pe)}`, m.pi_pe, false);
+    kids2.forEach(([k, t, v], i) => { if (P[k]) o += node(xs2[i], 330, t, money(v), v, true); });
+    svg.setAttribute('viewBox', '0 0 470 362');
+    svg.innerHTML = o;
+    return;
+  }
+  const top = afterEval ? 40 : 30;
+  if (!afterEval) {
+    o += edge(200, top + 26, 76, 134, 1 - m.pE) + edge(200, top + 26, 300, 134, m.pE);
+    o += node(200, top, 'Start', `Preis ${money(-simParams().C)}`, null, false);
+    o += node(76, 160, 'Eval verloren', money(m.pi_fe), m.pi_fe, true);
+  }
+  const py = afterEval ? top : 160, px = afterEval ? 210 : 300;
+  const kids = [['PO', 'Payout', m.pi_po], ...(hasDen ? [['DEN', 'verweigert', m.pi_den]] : []), ['FF', 'Funded verloren', m.pi_ff]];
+  const xs = afterEval ? (hasDen ? [70, 210, 350] : [110, 310]) : (hasDen ? [76, 210, 344] : [200, 344]);
+  const ky = afterEval ? 190 : 290;
+  kids.forEach(([k, t, v], i) => { if (P[k]) o += edge(px, py + 25, xs[i], ky - 25, afterEval ? P[k].p : P[k].p / m.pE); });
+  o += node(px, py, m.stages && m.stages.length > 1 ? 'Step 2 bestanden' : 'Eval bestanden', `Stand ${money(m.pi_pe)}`, m.pi_pe, false);
+  kids.forEach(([k, t, v], i) => { if (P[k]) o += node(xs[i], ky, t, money(v), v, true); });
+  svg.setAttribute('viewBox', `0 0 420 ${afterEval ? 225 : 322}`);
+  svg.innerHTML = o;
+}
+
+function renderSim() {
+  const res = simState.res;
+  if (!res) return;
+  const m = res.selected, b = res.best, afterEval = res.mode === 'funded' && simState.fStatus === '1';
+  const metricName = {sortino: 'Sortino', ev: 'Erwartungswert', roi: 'ROI'}[res.metric];
+  const kpi = (label, val, hl = false, extra = '') => `<div class="kpi${hl ? ' hl' : ''}"><small>${label}</small><b>${val}</b>${extra}</div>`;
+  const isOpt = res.mode !== 'custom';
+  $('simKpis').innerHTML = [
+    kpi((res.two_step ? 'h<sub>1</sub>' : 'h<sub>E</sub>') + (res.mode === 'optimize' ? ' optimal' : ''), hTxt(m.hE), res.mode === 'optimize'),
+    ...(res.two_step ? [kpi('h<sub>2</sub>' + (res.mode === 'optimize' ? ' optimal' : ''), hTxt(m.hE2), res.mode === 'optimize')] : []),
+    kpi(isOpt ? 'h<sub>F</sub> optimal' : 'h<sub>F</sub>', hTxt(m.hF), true),
+    kpi('Erwartungswert', `<span class="${sgn(m.ev)}">${money(m.ev, 2)}</span>`),
+    kpi('Sortino', m.sortino === null ? (m.ev > 0 ? '∞' : '–') : nf(m.sortino, 2),
+      false, res.mode === 'custom' && b.sortino !== null ? `<em>opt. ${nf(b.sortino, 2)}</em>` : ''),
+    kpi('Kapitalbedarf Live', money(m.capital), false, `<em title="Tiefster laufender Stand auf dem Payout-Pfad (Π_min)">Π<sub>min</sub></em>`),
+    kpi('ROI auf Kapital', m.roi === null ? '–' : pctTxt(m.roi)),
+    `<div class="kpi" title="So viel % der erreichten Payouts müssen ausgezahlt werden, damit der EV ≥ 0 ist"><small>Breakeven-Auszahlung</small><b>${m.q_star === null ? '–' : (m.q_star <= 0 ? '0 %' : pctTxt(m.q_star))}</b></div>`,
+    kpi(afterEval ? 'p Payout' : 'p Pass / Payout', afterEval ? pctTxt(m.pF, 0) : `${nf(m.pE * 100, 0)} / ${nf(m.pF * 100, 0)} %`)
+  ].join('');
+
+  const sym = {0: res.two_step ? 'h<sub>1</sub>' : 'h<sub>E</sub>', 1: 'h<sub>2</sub>', F: 'h<sub>F</sub>'};
+  $('simRanges').innerHTML = (res.ranges || []).map(g => {
+    const span = !g.ok ? '<b class="neg">kein Bereich</b>'
+      : `<b>${nf(g.lo, 3)} – ${g.hi_inf ? '∞' : nf(g.hi, 3)}</b>`;
+    const inside = g.ok && g.current >= g.lo - 1e-9 && (g.hi_inf || g.current <= g.hi + 1e-9);
+    return `<span>${esc(g.phase)}: ${sym[g.key]} ${span} → netto ≥ 0 ` +
+      `<span class="${inside ? 'pos' : 'neg'}">(aktuell ${hTxt(g.current)} ${inside ? '✓' : '✗'})</span></span>`;
+  }).join('');
+
+  const heat = res.mode !== 'funded';
+  $('heatWrap').hidden = !heat; $('curve').toggleAttribute('hidden', heat);
+  if (heat) {
+    $('leftTitle').firstChild.textContent = res.two_step ? `${metricName} nach Step-Ratios (h_F jeweils optimal) ` : `${metricName} nach Hedge Ratio `;
+    $('leftSub').textContent = res.two_step ? `Optimum h_1 ${hTxt(b.hE)} · h_2 ${hTxt(b.hE2)} · h_F ${hTxt(b.hF)}`
+      : `Optimum h_E ${hTxt(b.hE)} · h_F ${hTxt(b.hF)}`;
+    drawHeat(res);
+  } else {
+    $('leftTitle').firstChild.textContent = 'Pfad-Ergebnis nach h_F ';
+    $('leftSub').textContent = res.two_step ? `h_1 ${hTxt(simState.fHE)} · h_2 ${hTxt(simState.fHE2)} fest` : `h_E ${hTxt(simState.fHE)} fest`;
+    drawCurve(res);
+  }
+  $('treeSub').textContent = afterEval ? 'ab bestandener Eval' : `${nf(m.n_E, 1)} Eval- / ${nf(m.n_F, 1)} Funded-Trades erwartet`;
+  drawTree(m, afterEval);
+  const notes = [...(res.notes || [])];
+  if (res.mode === 'funded')
+    notes.push('In der Funded-Phase ändert h_F den Erwartungswert kaum (fairer Random Walk, nur Gebühren). h_F verteilt das Ergebnis zwischen Payout und Funded-Verlust; optimal ist, wo die Pfade am engsten zusammenliegen.');
+  if (m.ev <= 0) notes.push('Erwartungswert ≤ 0: optimiert wird auf kleinste Abwärtsstreuung statt Sortino.');
+  if (res.params.r < res.params.r_requested - 1e-12)
+    notes.push(`Risiko pro Trade auf ${nf(res.params.r * 100, 2)} % gedeckelt (statt ${nf(res.params.r_requested * 100, 2)} %): ${nf(m.n_E, 1)} statt ${nf(m.n_E * (res.params.r / res.params.r_requested) ** 2, 1)} erwartete Eval-Trades.`);
+  if (res.mc) notes.push(`EOD trailing: Monte-Carlo mit ${nf(res.params.mc_paths, 0)} Pfaden und ${res.params.trades_per_day} Trades pro Tag; Pfad-Werte sind Durchschnitte.`);
+  if (res.mode === 'optimize') notes.push('Klick in die Heatmap übernimmt den Punkt als eigene Ratios.');
+  $('simNote').textContent = notes.join(' ');
+}
+
+let simTimer = null, simSeq = 0;
+function scheduleSim() { clearTimeout(simTimer); simTimer = setTimeout(runSim, 200); }
+async function runSim() {
+  const p = simParams(), seq = ++simSeq;
+  store.set('ph_sim_params', p);
+  store.set('ph_sim_state', {mode: simState.mode, hE: simState.hE, hE2: simState.hE2, hF: simState.hF, fHE: simState.fHE,
+    fHE2: simState.fHE2, fStatus: simState.fStatus, fPE: simState.fPE});
+  const body = {params: p, mode: simState.mode, metric: p.metric, step: p.step};
+  if (simState.mode === 'custom') Object.assign(body, {hE: simState.hE, hE2: simState.hE2, hF: simState.hF});
+  if (simState.mode === 'funded') Object.assign(body, {hE: simState.fHE, hE2: simState.fHE2, after_eval: simState.fStatus === '1',
+    pe_actual: simState.fPE === '' ? null : Number(simState.fPE)});
+  const mc = p.dd_mode_E === 'trailing' || p.dd_mode_F === 'trailing' || (p.two_step && p.dd_mode_E2 === 'trailing');
+  $('simLoadTxt').textContent = mc ? `Monte-Carlo läuft… (${nf(p.mc_paths, 0)} Pfade${p.two_step ? ', drei Ratios' : ''})` : 'Rechne…';
+  const t0 = performance.now();
+  let tick = null;
+  const busyT = setTimeout(() => {
+    $('simLoading').hidden = false;
+    $('simKpis').classList.add('dim');
+    tick = setInterval(() => { $('simLoadTime').textContent = nf((performance.now() - t0) / 1000, 1) + ' s'; }, 100);
+  }, 250);
+  try {
+    const res = await api('/api/sim', {method: 'POST', body: JSON.stringify(body)});
+    if (seq !== simSeq) return;
+    simState.res = res;
+    renderSim();
+  } catch (e) {
+    if (seq === simSeq) toast('Simulator: ' + esc(e.message), true);
+  } finally {
+    clearTimeout(busyT);
+    clearInterval(tick);
+    if (seq === simSeq) {
+      $('simLoading').hidden = true;
+      $('simKpis').classList.remove('dim');
+      $('simLoadTime').textContent = '0,0 s';
+    }
+  }
+}
+
+function setSimMode(mode) {
+  simState.mode = mode;
+  document.querySelectorAll('#simMode button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  $('inCustom').hidden = mode !== 'custom';
+  $('inFunded').hidden = mode !== 'funded';
+  $('cHE').value = simState.hE; $('cHE2').value = simState.hE2; $('cHF').value = simState.hF;
+  $('fHE').value = simState.fHE; $('fHE2').value = simState.fHE2; $('fStatus').value = simState.fStatus; $('fPE').value = simState.fPE;
+  runSim();
+}
+
+function setView(v) {
+  document.body.classList.toggle('view-sim', v === 'sim');
+  $('viewSim').hidden = v !== 'sim';
+  document.querySelectorAll('#views button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  store.set('ph_view', v);
+  if (v === 'sim') { if (simState.res) renderSim(); else runSim(); }
+}
+
+$('views').addEventListener('click', e => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
+$('simMode').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (b) setSimMode(b.dataset.mode); });
+$('simForm').addEventListener('input', scheduleSim);
+$('simForm').two_step.addEventListener('change', syncTwoStep);
+$('cHE2').addEventListener('input', () => { simState.hE2 = Number($('cHE2').value) || 0; scheduleSim(); });
+$('fHE2').addEventListener('input', () => { simState.fHE2 = Number($('fHE2').value) || 0; scheduleSim(); });
+$('simForm').addEventListener('change', scheduleSim);
+$('simDefaults').addEventListener('click', () => { fillSim(SIM_DEFAULTS); syncTwoStep(); runSim(); });
+$('cHE').addEventListener('input', () => { simState.hE = Number($('cHE').value) || 0; scheduleSim(); });
+$('cHF').addEventListener('input', () => { simState.hF = Number($('cHF').value) || 0; scheduleSim(); });
+$('fHE').addEventListener('input', () => { simState.fHE = Number($('fHE').value) || 0; scheduleSim(); });
+$('fStatus').addEventListener('change', () => { simState.fStatus = $('fStatus').value; scheduleSim(); });
+$('fPE').addEventListener('input', () => { simState.fPE = $('fPE').value; scheduleSim(); });
+$('fFromLive').addEventListener('click', () => {
+  const v = st && st.ratios ? (st.ratios.running ?? st.ratios.realized) : null;
+  if (v === null || v === undefined) { toast('Im Terminal gibt es noch keine Hedge Ratio', true); return; }
+  simState.fHE = simState.fHE2 = Math.round(v * 100) / 100;
+  $('fHE').value = simState.fHE; $('fHE2').value = simState.fHE2;
+  runSim();
+});
+window.addEventListener('resize', () => { if (!$('viewSim').hidden && simState.res && simState.res.grid) drawHeat(simState.res); });
+
+(function initSim() {
+  fillSim({...SIM_DEFAULTS, ...(store.get('ph_sim_params') || {})});
+  syncTwoStep();
+  Object.assign(simState, store.get('ph_sim_state') || {});
+  document.querySelectorAll('#simMode button').forEach(b => b.classList.toggle('on', b.dataset.mode === simState.mode));
+  $('inCustom').hidden = simState.mode !== 'custom';
+  $('inFunded').hidden = simState.mode !== 'funded';
+  $('cHE').value = simState.hE; $('cHE2').value = simState.hE2; $('cHF').value = simState.hF;
+  $('fHE').value = simState.fHE; $('fHE2').value = simState.fHE2; $('fStatus').value = simState.fStatus; $('fPE').value = simState.fPE;
+  const hm = location.hash.match(/^#sim(?:-(optimize|custom|funded))?$/);
+  if (hm && hm[1]) { simState.mode = hm[1]; document.querySelectorAll('#simMode button').forEach(b => b.classList.toggle('on', b.dataset.mode === hm[1]));
+    $('inCustom').hidden = hm[1] !== 'custom'; $('inFunded').hidden = hm[1] !== 'funded'; }
+  if (hm || store.get('ph_view') === 'sim') setView('sim');
+})();
+
+// ---- Gespeicherte Konfigurationen ----
+let simConfigs = [], cmpOpen = store.get('ph_cmp_open') !== false;
+function cfgDesc(c) {
+  const P = c.params, two = P.two_step, trail = [P.dd_mode_E, two ? P.dd_mode_E2 : null, P.dd_mode_F].includes('trailing');
+  const r = P.max_r_enabled ? Math.min(P.r, P.max_r ?? 0.015) : P.r;
+  return `${two ? '2-Step' : '1-Step'} · ${trail ? 'EOD trailing' : 'statisch'} · ${nf(P.A / 1000, 0)}k · $${nf(P.C, 0)} · r ${nf(r * 100, 1)} %`;
+}
+function cfgHs(c) {
+  const R = c.result, two = c.params.two_step;
+  const mode = {optimize: 'optimal', custom: 'eigene', funded: 'Funded neu'}[c.state.mode] || '';
+  return `${mode}: ${two ? `h₁ ${hTxt(R.hE)} · h₂ ${hTxt(R.hE2)}` : `h_E ${hTxt(R.hE)}`} · h_F ${hTxt(R.hF)}`;
+}
+function renderConfigs() {
+  const box = $('simCompare'), list = $('cmpList');
+  box.hidden = !cmpOpen;
+  $('viewSim').classList.toggle('cmp', cmpOpen);
+  $('cmpToggle').textContent = cmpOpen ? 'Vergleich ausblenden' : `Vergleich (${simConfigs.length})`;
+  $('cmpCount').textContent = simConfigs.length ? String(simConfigs.length) : '';
+  if (!simConfigs.length) { list.innerHTML = '<p class="cmpEmpty">Noch nichts gespeichert. Konfiguration einstellen, Namen eingeben, „Speichern“.</p>'; return; }
+  const key = $('cmpSort').value, num = v => (v === null || v === undefined || isNaN(v)) ? null : v;
+  const lowBetter = {capital: true, q_star: true};
+  const sorted = [...simConfigs].sort((a, b) => {
+    if (key === 'created') return b.created - a.created;
+    const x = num(a.result[key]), y = num(b.result[key]);
+    if (x === null) return 1; if (y === null) return -1;
+    return lowBetter[key] ? x - y : y - x;
+  });
+  const best = {};
+  for (const k of ['ev', 'sortino', 'roi', 'capital', 'q_star']) {
+    const vals = simConfigs.map(c => num(c.result[k])).filter(v => v !== null);
+    if (vals.length > 1) best[k] = lowBetter[k] ? Math.min(...vals) : Math.max(...vals);
+  }
+  const cell = (R, k, label, txt) => `<div><small>${label}</small><span class="${best[k] !== undefined && R[k] === best[k] ? 'best' : ''}">${txt}</span></div>`;
+  list.innerHTML = sorted.map(c => {
+    const R = c.result;
+    return `<div class="cfg${c.id === simState.cfgId ? ' cur' : ''}" data-id="${esc(c.id)}" title="Klicken zum Laden">
+      <div class="top"><b>${esc(c.name)}</b><button class="xs" type="button" data-del="${esc(c.id)}" title="Löschen">✕</button></div>
+      <div class="desc">${esc(cfgDesc(c))}</div>
+      <div class="vals">
+        ${cell(R, 'ev', 'EV', `<span class="${sgn(R.ev)}">${money(R.ev)}</span>`)}
+        ${cell(R, 'sortino', 'Sortino', R.sortino === null ? (R.ev > 0 ? '∞' : '–') : nf(R.sortino, 2))}
+        ${cell(R, 'roi', 'ROI', R.roi === null ? '–' : pctTxt(R.roi))}
+        ${cell(R, 'capital', 'Kapital', money(R.capital))}
+        ${cell(R, 'q_star', 'Breakeven q*', R.q_star === null ? '–' : (R.q_star <= 0 ? '0 %' : pctTxt(R.q_star, 0)))}
+        <div><small>p Payout</small><span>${pctTxt(R.pE * R.pF, 1)}</span></div>
+      </div>
+      <div class="hs">${esc(cfgHs(c))}</div>
+    </div>`;
+  }).join('');
+}
+async function loadConfigs() {
+  try { simConfigs = await api('/api/sim/configs'); } catch (e) { simConfigs = []; }
+  renderConfigs();
+}
+$('cfgSave').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = simState.res;
+  if (!res) { toast('Erst rechnen lassen', true); return; }
+  const m = res.selected, p = simParams();
+  const name = $('cfgName').value.trim() || `${p.two_step ? '2-Step' : '1-Step'} ${nf(p.A / 1000, 0)}k $${nf(p.C, 0)}`;
+  const body = {name, params: p,
+    state: {mode: simState.mode, hE: simState.hE, hE2: simState.hE2, hF: simState.hF, fHE: simState.fHE, fHE2: simState.fHE2,
+      fStatus: simState.fStatus, fPE: simState.fPE},
+    result: {hE: m.hE, hE2: m.hE2, hF: m.hF, ev: m.ev, sortino: m.sortino, roi: m.roi, capital: m.capital, q_star: m.q_star,
+      pE: m.pE, pF: m.pF, n_E: m.n_E, n_F: m.n_F, mc: !!res.mc, two_step: !!res.two_step, metric: res.metric}};
+  try {
+    const saved = await api('/api/sim/configs', {method: 'POST', body: JSON.stringify(body)});
+    simConfigs.push(saved);
+    simState.cfgId = saved.id;
+    $('cfgName').value = '';
+    cmpOpen = true; store.set('ph_cmp_open', true);
+    renderConfigs();
+    toast(`„${esc(saved.name)}“ gespeichert`);
+  } catch (err) {
+    toast('Nicht gespeichert: ' + esc(err.message), true);
+  }
+});
+$('cmpList').addEventListener('click', async e => {
+  const del = e.target.closest('button[data-del]');
+  if (del) {
+    e.stopPropagation();
+    try { simConfigs = await api(`/api/sim/configs/${encodeURIComponent(del.dataset.del)}`, {method: 'DELETE'}); } catch (err) { toast(esc(err.message), true); }
+    renderConfigs();
+    return;
+  }
+  const card = e.target.closest('.cfg[data-id]');
+  if (!card) return;
+  const c = simConfigs.find(x => x.id === card.dataset.id);
+  if (!c) return;
+  fillSim({...SIM_DEFAULTS, ...c.params});
+  syncTwoStep();
+  Object.assign(simState, c.state);
+  simState.cfgId = c.id;
+  renderConfigs();
+  setSimMode(c.state.mode || 'optimize');
+});
+$('cmpSort').addEventListener('change', renderConfigs);
+$('cmpToggle').addEventListener('click', () => { cmpOpen = !cmpOpen; store.set('ph_cmp_open', cmpOpen); renderConfigs(); if (simState.res && simState.res.grid) setTimeout(() => drawHeat(simState.res), 0); });
+$('simForm').addEventListener('input', () => { if (simState.cfgId) { simState.cfgId = null; renderConfigs(); } });
+loadConfigs();
+
+init().catch(e => toast('Start fehlgeschlagen: ' + esc(e.message), true));
+</script>
+</body>
+</html>
