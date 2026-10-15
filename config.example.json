@@ -7,18 +7,18 @@
   "prop": {
     "terminal_path": "C:/MT5/PropFirm/terminal64.exe",
     "portable": true,
-    "login": 12345678,
+    "login": 0,
     "password": "",
-    "server": "PropFirm-Server",
+    "server": "",
     "symbol": "NAS100",
     "magic": 260101
   },
   "live": {
     "terminal_path": "C:/MT5/Vantage/terminal64.exe",
     "portable": true,
-    "login": 87654321,
+    "login": 0,
     "password": "",
-    "server": "VantageInternational-Live",
+    "server": "",
     "symbol": "NAS100",
     "magic": 260102
   },
