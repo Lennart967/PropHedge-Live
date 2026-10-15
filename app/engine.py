@@ -29,7 +29,7 @@ def sym_key(name):
     for suf in SUFFIXES:
         if base.endswith(suf) and len(base) > len(suf) + 2:
             base = base[:-len(suf)]
-    # Ein angehängtes m/r/c/i (z. B. EURUSDm, USTECH100M) ist meist nur ein Kontotyp-Suffix
+    # m/r/c/i am Ende ist meist nur der Kontotyp
     cands = (base, base[:-1]) if len(base) > 4 and base[-1] in "MRCI" else (base,)
     for cand in cands:
         for canon, names in ALIASES.items():
@@ -81,9 +81,7 @@ class HedgeEngine:
 
     @staticmethod
     def eod_status(rules, now=None):
-        """Täglicher NY-Close und Wochenend-Close. Phasen: 'block' (keine neuen Entries), 'close' (alles
-        schließen), 'weekend' (Markt zu von Freitag-Close bis Sonntag 17:00 New York), sonst 'open'.
-        Bei beiden aktiv gilt die strengere bzw. frühere Phase."""
+        """Phase vor NY-Close bzw. Wochenende: open, block, close oder weekend."""
         now = now or datetime.now(NY)
         at = lambda day, hhmm: datetime(day.year, day.month, day.day, *map(int, hhmm.split(":")), tzinfo=NY)
         cands = []
@@ -125,7 +123,7 @@ class HedgeEngine:
         return start, datetime.fromtimestamp(start + 86399, timezone.utc).date().isoformat()
 
     async def atr_distance(self, rules, spec):
-        """SL/TP-Abstand aus dem ATR des Prop-Symbols (× Faktor, auf den Tick gerundet). Kerzen 60 s gecacht."""
+        """SL/TP-Abstand = ATR × Faktor."""
         tf, n = rules["atr_timeframe"], int(rules["atr_period"])
         key = (self.sym_p, tf, n)
         if self.atr_cache and self.atr_cache[0] == key and time.time() - self.atr_cache[1] < 60:
@@ -154,11 +152,11 @@ class HedgeEngine:
         except Exception as e:
             atr_error = str(e)
         if rules["atr_enabled"] and atr_info:
-            rules["sl_distance"] = atr_info["distance"]  # nur für diese Berechnung, gespeichert bleibt der feste Wert
+            rules["sl_distance"] = atr_info["distance"]  # nur für die Berechnung
         day_start, day = self.trading_day(tick_p["time"], int(rules["reset_hour"]))
         realized, realized_l = await asyncio.gather(self.prop.acall("realized_since", ts_from=day_start),
                                                     self.live.acall("realized_since", ts_from=day_start))
-        # Live-Beträge werden für alle Ratio-Rechnungen in Prop-Währung umgerechnet
+        # Live in Prop-Währung
         fx = await self.fx_rate(acc_l["currency"], acc_p["currency"])
         fxv = fx or 1.0
         pairs, unmanaged = self.pairs(pos_p, pos_l)
@@ -178,7 +176,7 @@ class HedgeEngine:
         cost = risk.costs(rules, spec_p, spec_l, tick_p["ask"] - tick_p["bid"], tick_l["ask"] - tick_l["bid"])
         track = self.ratio_track(rules, day, fxv)
 
-        # Kurz vor dem Profit-Ziel: nur so groß, dass der TP das Ziel gerade erreicht
+        # Deckel kurz vor dem Profit-Ziel
         tl = risk.target_lots(rules, spec_p, cost, rm["target_left"])
         target_cap = {"Profit-Ziel": tl} if tl is not None else {}
 
@@ -189,7 +187,7 @@ class HedgeEngine:
         use = rules["margin_max_use_pct"]
 
         def margins(sz, hl):
-            # Schlechtester Fall je Konto: neue Position + alle offenen am Stop, kurz vor dem Auslösen
+            # schlechtester Fall: alles am Stop
             worst_p = sz["sl_usd"] + sz["commission_usd"] + exp["risk"]
             worst_l = hl * (risk.vpu(spec_l) * cost["live_loss"] + rules["commission_live_per_lot"]) + exp_l["risk"]
             return {"prop": risk.margin_check(acc_p, sz["lots"] * mpl_p, worst_p),
@@ -206,8 +204,7 @@ class HedgeEngine:
         margin = margins(size, hedge_lots)
         bad = failing(margin) if size["lots"] > 0 else None
         if bad:
-            # Größte Position suchen, die auf beiden Konten Margin-Grenze und Stop-Out-Abstand einhält.
-            # Prop und Live schrumpfen gemeinsam, damit die Ratio erhalten bleibt.
+            # größte Position, die auf beiden Konten passt
             label = "Margin / Stop-Out " + ("Live-Konto" if bad == "live" else "Prop-Konto")
             lo, hi, best = 0.0, size["lots"], None
             while hi - lo > spec_p["vol_step"] / 2:
@@ -223,10 +220,21 @@ class HedgeEngine:
             else:
                 size, hedge_lots, hedge_base = sized({label: 0.0})
                 margin = margins(size, hedge_lots)
+        if rules.get("align_lots", True) and rules.get("hedge_mode", "fee") == "fee" and size["lots"] > 0:
+            # Lot-Abgleich
+            al = risk.align_lots(size["lots"], spec_p, spec_l, rules["hedge_ratio"], fxv)
+            if al and al[0] < size["lots"] - 1e-12:
+                f = al[0] / size["lots"]
+                size = {**size, **{k: size[k] * f for k in ("risk_usd", "reward_usd", "sl_usd", "commission_usd",
+                                                               "margin", "notional")},
+                        "lots": al[0], "limited_by": size["limited_by"] + " + Lot-Abgleich"}
+                margin = margins(size, al[1])
+            if al:
+                hedge_lots = hedge_base = al[1]
         track["base_lots"] = hedge_base
 
         def variant(dist):
-            """Größe und Kosten eines Hedges bei Abstand dist (ohne Margin-Suche, als Vergleich)."""
+            """Größe und Kosten bei Abstand dist, ohne Margin-Suche."""
             r2 = {**rules, "sl_distance": dist}
             c2 = risk.costs(r2, spec_p, spec_l, tick_p["ask"] - tick_p["bid"], tick_l["ask"] - tick_l["bid"])
             sz = risk.position_size(r2, spec_p, mid, rm, acc_p["margin_free"], mpl_p)
@@ -284,8 +292,7 @@ class HedgeEngine:
         scen = self.scenarios(pairs, rules, size, hedge_lots, spec_p, spec_l, acc_p, acc_l, realized, realized_l,
                               cost, fxv)
         for row in scen["rows"]:
-            # Prognose: realisierte Ratio im Ausgleichs-Zeitraum, wenn das Szenario eintritt.
-            # Basis ist der Positions-P&L wie MT5 ihn nach dem Schließen führt: Kurs + Entry-/Exit-Kommission + Swap
+            # realisierte Ratio, falls das Szenario eintritt
             rp = ratios["realized_prop"] + row["prop_realized"]
             rl = ratios["realized_live"] + row["live_realized"] * fxv
             row["ratio"] = -rl / rp if abs(rp) >= 1 else None
@@ -301,10 +308,7 @@ class HedgeEngine:
                          "realized": realized_l, "currency": acc_l["currency"]}}
 
     async def max_loss_level(self, rules, acc_p, day_start):
-        """Max-Loss-Grenze als Kontostand. EOD trailing: nach jedem abgeschlossenen Handelstag steigt sie auf
-        Tagesend-Balance × (1 − Max-Loss-%), sinkt aber nie; optional höchstens bis zum Startkapital.
-        Die Tagesend-Stände werden aus der Deal-History rekonstruiert (heutige Balance minus alles danach),
-        funktionieren also auch, wenn die App nachts aus war. Gecacht pro Handelstag."""
+        """Max-Loss-Grenze als Kontostand, statisch oder EOD trailing."""
         init = rules["initial_balance"]
         static = init - rules["max_loss"]
         if rules["max_loss_mode"] != "eod_trailing":
@@ -317,14 +321,14 @@ class HedgeEngine:
         deals = sorted(await self.prop.acall("deals_since", ts_from=start), key=lambda d: d["time"])
         first = max(start, deals[0]["time"]) if deals else day_start
         level, high, days = static, None, 0
-        after = 0.0  # Summe aller Buchungen ab der jeweiligen Tagesgrenze
+        after = 0.0  # Buchungen ab der Tagesgrenze
         i = len(deals) - 1
         b = day_start
         while b > first and days < 1000:
             while i >= 0 and deals[i]["time"] >= b:
                 after += deals[i]["amount"]
                 i -= 1
-            eod = acc_p["balance"] - after  # Balance am Ende des Tages, der bei b endet
+            eod = acc_p["balance"] - after  # Tagesend-Balance
             high = eod if high is None else max(high, eod)
             new = eod * (1 - pct)
             if rules["trail_lock"]:
@@ -337,8 +341,7 @@ class HedgeEngine:
         return out
 
     async def fx_rate(self, frm, to):
-        """Wert von 1 Einheit `frm` in `to` (z. B. EUR → USD = EURUSD-Mid). Sucht das Paar auf beiden Brokern,
-        auch mit Broker-Suffix (EURUSD.r, EURUSDm)."""
+        """Kurs von frm in to, z. B. EUR → USD."""
         if frm == to:
             return 1.0
         for br in (self.live, self.prop):
@@ -366,7 +369,7 @@ class HedgeEngine:
         return self.fx_symbols[key]
 
     async def margin_per_lot(self, br, symbol, tick):
-        """Margin für 1 Lot laut Broker (order_calc_margin) – enthält den echten Hebel des Symbols. 10 s gecacht."""
+        """Margin für 1 Lot laut Broker, kurz gecacht."""
         key = (br.name, symbol)
         c = self.margin_cache.get(key)
         if c and time.time() - c[0] < 10:
@@ -381,22 +384,20 @@ class HedgeEngine:
         return risk.vpu(s) if s else None
 
     def ratio_track(self, rules, day, fx=1.0):
-        """Geschlossene Hedges im Ausgleichs-Zeitraum (ganze Challenge seit Reset oder nur heute).
-        deviation > 0: Live liegt vor dem Ziel, < 0: Live liegt zurück (z. B. durch Kosten)."""
+        """Geschlossene Hedges im Ausgleichs-Zeitraum."""
         if rules["ratio_scope"] == "day":
-            # Hedges vor einem Challenge-Reset am selben Tag zählen nicht mit
+            # Hedges vor dem Reset zählen nicht
             closed, since = self.db.closed_pnl_by_account(day, self.db.get_setting("ratio_since")), None
         else:
             since = self.db.get_setting("ratio_since")
             closed = self.db.closed_pnl_since(since)
-        # Live in Prop-Währung (zum aktuellen Kurs; historische Kurse werden nicht nachgebildet)
+        # Live in Prop-Währung (aktueller Kurs)
         p, l = closed.get("prop", 0.0), closed.get("live", 0.0) * fx
         return {"scope": rules["ratio_scope"], "since": since, "prop": p, "live": l,
                 "deviation": l + rules["hedge_ratio"] * p, "ratio": -l / p if abs(p) >= 1 else None}
 
     def hedge_ratios(self, pairs, track, rules, lots, hedge_lots, spec_p, spec_l, cost, fx=1.0):
-        """Hedge Ratio = Geld-Bewegung Live / Geld-Bewegung Prop, beides in Prop-Währung.
-        Geplant, nach Lot-Rundung, offen, laufend und realisiert."""
+        """Ratio geplant, gerundet, offen und realisiert."""
         conv = {"prop": 1.0, "live": fx}
         out = {"planned": rules["hedge_ratio"], "next": None, "open_volume": None, "open_pnl": None,
                "realized": None, "realized_prop": 0.0, "realized_live": 0.0}
@@ -406,10 +407,10 @@ class HedgeEngine:
             prop_gain, live_loss = o["prop_gain"], hedge_lots * o["live_loss"]
             out["next"] = live_gain / prop_loss
             out["next_tp"] = live_loss / prop_gain if prop_gain > 0 else None
-            # Kursbewegung allein (ohne Spread/Kommission): das Verhältnis, das der Modus "fee" trifft
+            # reine Kursbewegung
             out["next_gross"] = hedge_lots * risk.vpu(spec_l) * fx / (lots * risk.vpu(spec_p))
             out["fees"] = risk.trade_fees(lots, hedge_lots, spec_p, spec_l, rules, cost, fx)
-            # Kumulierte Ratio und Abweichung im Ausgleichs-Zeitraum, falls dieser Hedge per Prop-SL bzw. -TP schließt
+            # kumuliert nach SL bzw. TP
             pc, pt = track["prop"] - prop_loss, track["prop"] + prop_gain
             out["next_cum"] = -(track["live"] + live_gain) / pc if abs(pc) >= 1 else None
             out["next_dev"] = track["live"] + live_gain + rules["hedge_ratio"] * pc
@@ -430,7 +431,7 @@ class HedgeEngine:
             out["open_volume"] = exp["live"] / exp["prop"]
             if abs(pnl["prop"]) >= 1:
                 out["open_pnl"] = -pnl["live"] / pnl["prop"]
-        # Laufende Ratio: geschlossene Hedges + aktueller P&L der offenen Legs (inkl. bezahlter Entry-Kommission)
+        # geschlossene Hedges + offener P&L
         run = {"prop": track["prop"], "live": track["live"]}
         for t in pairs:
             for l in t["legs"]:
@@ -445,7 +446,7 @@ class HedgeEngine:
         return out
 
     async def _load_entry_fees(self, pairs):
-        """Tatsächliche Entry-Kommission je offenem Leg (einmal vom Broker gelesen, dann gecacht)."""
+        """Entry-Kommission je offenem Leg, gecacht."""
         for t in pairs:
             for l in t["legs"]:
                 k = (l["account"], l["ticket"])
@@ -459,11 +460,7 @@ class HedgeEngine:
 
     def scenarios(self, pairs, rules, size, hedge_lots, spec_p, spec_l, acc_p, acc_l, realized, realized_l, cost,
                   fx=1.0):
-        """Kontostände und realisierter P&L, wenn alle offenen Hedges per Prop-SL bzw. Prop-TP schließen
-        (Live jeweils Gegenseite). Ohne offene Hedges: Vorschau für den nächsten geplanten Hedge.
-
-        delta    = Veränderung der Balance (Entry-Kommission ist schon gebucht)
-        realized = Positions-P&L wie MT5 ihn führt (Kurs + Entry- + Exit-Kommission + Swap)"""
+        """Kontostände, falls die offenen Hedges per Prop-SL bzw. -TP schließen (ohne Hedge: Vorschau)."""
         per_lot = {"prop": rules["commission_per_lot"], "live": rules["commission_live_per_lot"]}
         z = lambda: {"prop": 0.0, "live": 0.0}
         delta = {"prop_sl": z(), "prop_tp": z()}
@@ -483,7 +480,7 @@ class HedgeEngine:
                 entry_fee = known if known is not None else -per_lot[acc] / 2 * l["volume"]
                 exit_fee = risk.exit_fee(known, per_lot[acc], l["volume"])
                 swap = l.get("swap", 0.0)
-                # Prop-SL: Prop am SL, Live (Gegenseite) am TP – und umgekehrt
+                # Prop-SL: Live am TP, und umgekehrt
                 hit = {"prop_sl": at_sl, "prop_tp": at_tp} if acc == "prop" else {"prop_sl": at_tp, "prop_tp": at_sl}
                 for key, gross in hit.items():
                     delta[key][acc] += gross + exit_fee + swap
@@ -495,7 +492,7 @@ class HedgeEngine:
             gp = size["sl_usd"]
             ul = hedge_lots * risk.vpu(spec_l)
             fp, fl = size["commission_usd"], hedge_lots * per_lot["live"]
-            # Noch keine Position: Entry-Kommission fällt erst an, Balance und realisiert sind gleich
+            # noch keine Position
             delta["prop_sl"] = {"prop": -gp - fp, "live": ul * cost["live_win"] - fl}
             cut = size["lots"] * risk.vpu(spec_p) * cost["prop_tp_cut"]  # ungespiegelt: Prop schließt vor dem TP
             delta["prop_tp"] = {"prop": gp - fp - cut, "live": -ul * cost["live_loss"] - fl}
@@ -544,7 +541,7 @@ class HedgeEngine:
         return hits[:limit]
 
     async def match_symbol(self, prop_symbol):
-        """Vorschläge auf dem Live-Konto für ein Prop-Symbol (gleicher Name, Suffix oder bekannter Alias)."""
+        """Passende Live-Symbole zu einem Prop-Symbol."""
         k = sym_key(prop_symbol)
         hits = [s for s in await self.symbol_list("live") if s["name"] == prop_symbol or sym_key(s["name"]) == k]
         hits.sort(key=lambda s: (s["name"] != prop_symbol, s["trade_mode"] != 4, len(s["name"])))
@@ -599,7 +596,7 @@ class HedgeEngine:
         return {"ok": not errors, "errors": errors, "warnings": warnings, **out}
 
     def assets(self):
-        """Geprüfte Asset-Paare (Prop/Live-Symbol) mit ihrem eigenen SL/TP-Abstand."""
+        """Geprüfte Asset-Paare mit eigenem SL/TP-Abstand."""
         return self.db.get_setting("assets") or []
 
     def remember_asset(self):
@@ -652,8 +649,7 @@ class HedgeEngine:
             return out
 
     def choose_side(self):
-        """Richtung der Prop-Seite (Live nimmt die Gegenrichtung). Gegen einseitiges Wetten: der erste Hedge
-        der Challenge ist zufällig, der zweite die Gegenrichtung des ersten, danach wieder 50/50."""
+        """Erster Hedge zufällig, zweiter Gegenrichtung, danach 50/50."""
         rules = self.db.get_rules()
         if rules["direction_mode"] == "alternate":
             sides = self.db.trade_sides_from_id(self.db.get_setting("challenge_trade_id"))
@@ -717,7 +713,7 @@ class HedgeEngine:
                 vol = cur["volume"] if cur else rr.get("volume") or (lots if acc == "prop" else hl)
                 nsl, ntp = risk.bracket(sd, fill, d, spec["digits"])
                 if acc == "live" and r["mirror_brackets"]:
-                    # Gleiche Preis-Level auf beiden Konten: Live-SL = Prop-TP, Live-TP = Prop-SL
+                    # Live-SL = Prop-TP, Live-TP = Prop-SL
                     p_row = rows[0]
                     msl = round(p_row["tp"], spec["digits"])
                     mtp = round(p_row["sl"], spec["digits"])
@@ -746,8 +742,7 @@ class HedgeEngine:
                     c = await br.acall("entry_commission", ticket=rr["ticket"])
                     if c.get("found") and c["volume"] > 0:
                         self.entry_fees[(acc.lower(), rr["ticket"])] = c["commission"]
-                        # Nur eine Schätzung (Entry × 2), und nur solange noch kein Wert bekannt ist.
-                        # Den exakten Round-Trip-Wert lernt sync() aus der geschlossenen Position.
+                        # Schätzung (Entry × 2), exakt erst beim Schließen
                         rt = round(-c["commission"] / c["volume"] * 2, 4)
                         if r[rule_key] == 0 and rt > 0:
                             self._set_commission(rule_key, rt)
@@ -763,8 +758,7 @@ class HedgeEngine:
             return {"trade_id": trade_id, "legs": rows, "warnings": warnings, "info": info}
 
     def reset_account_calibration(self):
-        """Neue Challenge (meist neue Konten): alles vergessen, was von den alten Konten gelernt wurde.
-        Kommissionen gehen auf 0 und werden beim nächsten Entry bzw. Close neu erkannt; Broker-Caches leeren."""
+        """Gelernte Werte der alten Konten vergessen."""
         keys = ("commission_per_lot", "commission_live_per_lot")
         rules = self.db.get_rules()
         for k in keys:
@@ -785,8 +779,7 @@ class HedgeEngine:
         self.remember_asset()
 
     def _learn_commission(self, row, res):
-        """Exakte Round-Trip-Kommission pro Lot aus allen Deals der geschlossenen Position (Entry + Exit),
-        nur für das aktive Asset, weil die Kommission pro Asset gespeichert wird."""
+        """Round-Trip-Kommission aus der geschlossenen Position lernen."""
         if "commission" not in res or not res.get("volume"):
             return
         acc = row["account"]

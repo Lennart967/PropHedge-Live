@@ -1,22 +1,4 @@
-"""PropHedge-Simulator: geschlossene Lösung aus dem Paper "PropHedge – The Payoff Structure of Hedged Prop Firm
-Evaluation Accounts with Static Drawdown" (Rüther 2026), Gleichungen (1)–(16).
-
-Gegenüber hedge_simulator.ipynb korrigiert:
-  * Profit-Split φ fehlte im Notebook (Payout war immer 100 %).
-  * int()-Abschneiden im Pass-Pfad entfernt.
-  * Live-Gebühren in der Funded-Phase nur, wenn dort auch gehedgt wird (wie in der Eval-Phase).
-  * "ROI" bezog sich auf h_F × A_F (Nominalwert) statt auf das gebundene Kapital; jetzt Kapitalbedarf Π_min (14).
-Optional (Standard an): Gebühren je Pfad mit der bedingten Trade-Anzahl statt der mittleren. Der Erwartungswert
-bleibt identisch, aber die einzelnen Pfade und damit die Sortino-Ratio werden exakt.
-
-EOD-Trailing-Drawdown (je Phase wählbar): Nach jedem Handelstag (alle k Trades) steigt die Max-Loss-Grenze auf
-Tagesend-Stand × (1 − D), sinkt aber nie. Optional stoppt sie beim Startkapital. Dafür gibt es keine geschlossene
-Lösung mehr (die Grenze hängt vom ganzen Pfad ab, ein Fail endet nicht mehr bei einem festen Verlust), daher
-Monte-Carlo mit festem Seed. Statische Phasen werden im Monte-Carlo identisch simuliert, sobald eine Phase trailt.
-
-2-Step-Challenges: Eval-Steps hintereinander (jeder Step startet wieder bei der Kontogröße A und hat eine eigene
-Hedge Ratio), danach die Funded-Phase. 1-Step ist der Sonderfall mit einem Step (= Paper).
-"""
+"""PropHedge-Simulator nach dem Paper (Rüther 2026). Statisch geschlossen gelöst, EOD trailing per Monte-Carlo."""
 import math
 from functools import lru_cache
 
@@ -30,29 +12,29 @@ DEFAULTS = {
     "T_F": 0.08, "D_F": 0.04,   # Funded: Payout-Ziel / Max Drawdown
     "f_E": 5.0,           # Gebühr pro Trade Prop-Konto, Eval
     "f_EF": 0.0,          # Gebühr pro Trade Prop-Konto, Funded
-    "f_L": 0.0,           # Gebühr pro Trade Live-Konto bei Hedge Ratio 1 (skaliert mit h: Spread × Live-Lots)
+    "f_L": 0.0,           # Gebühr pro Trade Live-Konto bei h = 1
     "phi": 1.0,           # Profit-Split
     "q": 1.0,             # Anteil tatsächlich ausgezahlter Payouts
     "C_F": 0.0,           # Aktivierungsgebühr Funded
-    "funded_scaled": True,  # A_F = A·(1+T_E); sonst A_F = A
+    "funded_scaled": True,  # Funded-Konto = A · (1 + T_E)
     "exact_fees": True,
     "dd_mode_E": "static",  # static | trailing (EOD)
     "dd_mode_F": "static",
     "trail_lock": False,    # Trailing stoppt beim Startkapital
     "trades_per_day": 2,
     "mc_paths": 20000,
-    "max_r_enabled": True,  # Risiko pro Trade deckeln (FTMO achtet teils auf max. 1,5 %)
+    "max_r_enabled": True,  # Risiko pro Trade deckeln
     "max_r": 0.015,
-    "two_step": False,      # 2-Step-Challenge: Step 1 (T_E, D_E) und Step 2 (T_E2, D_E2), je eigene Hedge Ratio
+    "two_step": False,      # 2-Step: Step 2 mit T_E2, D_E2
     "T_E2": 0.05, "D_E2": 0.10,
     "dd_mode_E2": "static",
-    "refund_fee": False,    # Challenge-Gebühr wird mit dem ersten Payout erstattet (z. B. FTMO)
+    "refund_fee": False,    # Gebühr mit 1. Payout zurück
 }
 SEED = 20261013
 
 
 def walk(T, D, r):
-    """Gambler's Ruin: Pass-Wahrscheinlichkeit und erwartete Trade-Anzahl (gesamt, bedingt auf Pass/Fail)."""
+    """Gambler's Ruin: Pass-Wahrscheinlichkeit und erwartete Trades."""
     a, b = T / r, D / r  # Schritte bis Ziel / bis Drawdown
     return {"p": D / (D + T), "n": a * b,
             "n_pass": a * (a + 2 * b) / 3, "n_fail": b * (2 * a + b) / 3}
@@ -60,11 +42,9 @@ def walk(T, D, r):
 
 @lru_cache(maxsize=16)
 def simulate_phase(T, D, r, k, trailing, lock, n, seed):
-    """Monte-Carlo einer Phase: symmetrischer Random Walk mit ±r, Ziel +T, Max-Loss-Grenze 1 − D (statisch)
-    bzw. nach jedem Tag max(Grenze, Stand × (1 − D)) (EOD trailing). Rückgabe je Pfad: bestanden, P&L der Phase
-    beim Ende (Anteil des Startkapitals; Fail = Grenze − 1) und Anzahl Trades."""
+    """Monte-Carlo einer Phase."""
     rng = np.random.default_rng(seed)
-    steps = np.zeros(n, dtype=np.int64)  # Stand = 1 + steps · r, ganzzahlig gegen Rundungsdrift
+    steps = np.zeros(n, dtype=np.int64)  # ganzzahlig gegen Rundungsdrift
     thr = np.full(n, 1.0 - D)
     trades = np.zeros(n, dtype=np.int64)
     passed = np.zeros(n, dtype=bool)
@@ -72,9 +52,7 @@ def simulate_phase(T, D, r, k, trailing, lock, n, seed):
     active = np.arange(n)
     t = 0
     while active.size and t < 200000:
-        # Nächstes Ereignis: TP (+r) bzw. Ziel, falls näher, oder SL (−r) bzw. Max-Loss-Grenze, falls näher.
-        # Faire Wahrscheinlichkeit für "oben zuerst": (Stand − unten) / (oben − unten). Liegt die (trailende)
-        # Grenze zwischen zwei Schritten, wird sie so mit der richtigen Wahrscheinlichkeit getroffen.
+        # nächstes Ereignis oben/unten, mit fairer Wahrscheinlichkeit
         bal = 1.0 + steps[active] * r
         lo_t = thr[active]
         up_lvl = np.minimum(bal + r, 1.0 + T)
@@ -121,7 +99,9 @@ def _summary(P, hs, hF, paths, ev, down, stages, pi_pe, pi_min, n_E, n_F, pF, p_
     ev_q1 = ev + (1 - q) * p_payout * payout_total
     q_star = 1 - ev_q1 / (p_payout * payout_total) if p_payout * payout_total > 0 else None
     pg = {k: v for k, _, _, v in paths}
-    return {"hE": hs[0], "hE2": hs[1] if len(hs) > 1 else None, "hs": list(hs), "hF": hF,
+    # schlechtester Pfad, ohne "Payout verweigert"
+    worst = min([v for k, _, p_, v in paths if k != "DEN" and p_ > 1e-12] or [0.0])
+    return {"hE": hs[0], "worst": worst, "hE2": hs[1] if len(hs) > 1 else None, "hs": list(hs), "hF": hF,
             "ev": ev, "downside": down, "sortino": sortino,
             "capital": capital, "roi": ev / capital if capital > 0 else None, "q_star": q_star,
             "pi_pe": pi_pe, "pi_fe": stages[0]["pi_fail"] if stages else None,
@@ -132,9 +112,7 @@ def _summary(P, hs, hF, paths, ev, down, stages, pi_pe, pi_min, n_E, n_F, pF, p_
 
 
 def evaluate(P, hs, hF, after_eval=False, pe_actual=None):
-    """Pfad-PnL, Erwartungswert und Sortino. hs = Hedge Ratio je Eval-Step, hF = Funded.
-    after_eval: alle Eval-Steps bestanden, nur die Funded-Phase ist offen (bedingte Wahrscheinlichkeiten).
-    pe_actual: tatsächlicher Stand nach der Eval (überschreibt das Modell)."""
+    """Pfad-PnL, EV und Sortino (geschlossene Lösung)."""
     if isinstance(hs, (int, float)):
         hs = [hs]
     if _mc_needed(P):
@@ -177,8 +155,7 @@ def evaluate(P, hs, hF, after_eval=False, pe_actual=None):
 
 
 def evaluate_mc(P, hs, hF_arr, after_eval=False, pe_actual=None):
-    """Monte-Carlo-Auswertung (EOD trailing), vektorisiert über mehrere h_F auf einmal. Liefert je h_F ein
-    Ergebnis wie evaluate()."""
+    """Wie evaluate, per Monte-Carlo und für mehrere h_F auf einmal."""
     A, C, r, k, n = P["A"], P["C"], P["r"], max(1, int(P["trades_per_day"])), int(P["mc_paths"])
     steps = eval_steps(P)
     two = len(steps) > 1
@@ -186,7 +163,7 @@ def evaluate_mc(P, hs, hF_arr, after_eval=False, pe_actual=None):
     q = P["q"]
     payout_total = P["phi"] * P["T_F"] * AF + (C if P["refund_fee"] else 0.0)
 
-    # Eval-Steps nacheinander: jeder Pfad läuft durch, bis er einen Step nicht besteht
+    # Steps nacheinander, bis ein Pfad scheitert
     running = np.full(n, -C)
     alive = np.ones(n, dtype=bool)
     fail_val = np.full(n, np.nan)
@@ -221,7 +198,7 @@ def evaluate_mc(P, hs, hF_arr, after_eval=False, pe_actual=None):
     x = np.where(alive[:, None], base[:, None] + fund, fail_val[:, None])
     po = alive & F["passed"]
     paid = x + po[:, None] * payout_total
-    # Payout-Pfade aufteilen: mit q ausgezahlt, mit 1 − q verweigert
+    # Payout: q ausgezahlt, 1 − q verweigert
     xs = np.concatenate([paid, x[po]], axis=0)
     ws = np.concatenate([np.where(po, q, 1.0), np.full(int(po.sum()), 1 - q)])[:, None]
     wsum = float(ws.sum())
@@ -263,10 +240,7 @@ def evaluate_all_hf(P, hs, hF_list, after_eval=False, pe_actual=None):
 
 
 def breakeven_ranges(P, hs, hF, after_eval=False, pe_actual=None, hcap=5.0):
-    """Je Phase der Bereich ihrer Hedge Ratio, in dem sowohl ein Verlust dieser Phase als auch der Payout netto
-    ≥ 0 enden; die anderen Ratios bleiben fest. Untergrenze: Live gewinnt bei Fail h · Drawdown und deckt damit
-    Gebühren und bisherige Live-Verluste. Obergrenze: Live verliert beim Bestehen h · Ziel, der Payout muss das
-    noch decken."""
+    """Ratio-Bereich je Phase, in dem Verlust dieser Phase und Payout netto ≥ 0 sind."""
     steps = eval_steps(P)
     two = len(steps) > 1
     phases = [] if after_eval else [(i, name, f"FE{i + 1}" if two else "FE")
@@ -311,7 +285,7 @@ def _grid(step, hmax):
 
 def run(params, mode="optimize", hE=None, hF=None, step=0.05, hmax=1.0, metric="sortino",
         after_eval=False, pe_actual=None, hE2=None):
-    """mode: optimize (alle Ratios frei), custom (alle vorgegeben), funded (Eval-Ratios fest, h_F optimieren)."""
+    """mode: optimize, custom oder funded."""
     P = {**DEFAULTS, **{k: v for k, v in (params or {}).items() if k in DEFAULTS}}
     for k in ("T_E", "D_E", "T_F", "D_F", "r", "T_E2", "D_E2"):
         if P[k] <= 0:
@@ -320,13 +294,13 @@ def run(params, mode="optimize", hE=None, hF=None, step=0.05, hmax=1.0, metric="
         raise ValueError("Max Drawdown muss unter 100 % liegen")
     P["trades_per_day"] = max(1, int(P["trades_per_day"]))
     P["mc_paths"] = int(min(max(P["mc_paths"], 1000), 200000))
-    # Gedeckeltes Risiko: kleinere Schritte, mehr Trades (n ~ T·D / r²) und damit mehr Gebühren
+    # gedeckeltes Risiko
     P["r_requested"] = P["r"]
     if P["max_r_enabled"] and P["max_r"] > 0:
         P["r"] = min(P["r"], P["max_r"])
     two = bool(P["two_step"])
     notes = []
-    # Drei Ratios: Raster begrenzen, damit die Optimierung schnell bleibt
+    # drei Ratios: Raster begrenzen
     min_step = (0.05 if _mc_needed(P) else 0.025) if two else 0.0
     if step < min_step:
         step = min_step
@@ -334,9 +308,10 @@ def run(params, mode="optimize", hE=None, hF=None, step=0.05, hmax=1.0, metric="
     hs_axis = _grid(step, hmax)
 
     def score(m):
-        # Sortino ist nur bei positivem EV sinnvoll: bei negativem EV würde ihre Maximierung das größte
-        # Risiko bevorzugen. Daher: positive EV vor negativen; dort Sortino (bzw. ROI/EV), sonst kleinste
-        # Abwärtsstreuung. Alle Pfade gleich und positiv (keine Streuung) ist das beste Ergebnis.
+        if metric == "worst":
+            # Maximin, bei Gleichstand EV
+            return (round(m["worst"], 6), m["ev"])
+        # Sortino nur bei EV > 0, sonst kleinste Abwärtsstreuung
         if m["ev"] > 0:
             if metric == "sortino":
                 return (1, math.inf if m["sortino"] is None else m["sortino"])
@@ -354,7 +329,7 @@ def run(params, mode="optimize", hE=None, hF=None, step=0.05, hmax=1.0, metric="
         out["curve"] = [{"hF": m["hF"], "ev": m["ev"], "sortino": m["sortino"], "capital": m["capital"],
                          "paths": {p_["key"]: p_["pnl"] for p_ in m["paths"]}} for m in curve]
     else:
-        # Heatmap: 1-Step h_E × h_F; 2-Step h_1 × h_2 mit dem jeweils besten h_F
+        # Heatmap; bei 2-Step h_1 × h_2 mit bestem h_F
         grid, grid_hf, best = [], [], None
         for h1 in hs_axis:
             row, row_hf = [], []

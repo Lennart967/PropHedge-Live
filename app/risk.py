@@ -6,7 +6,7 @@ def consistency_limit(r):
 
 
 def atr(candles, period):
-    """Average True Range über die letzten `period` abgeschlossenen Kerzen (die laufende Kerze zählt nicht)."""
+    """ATR über die letzten abgeschlossenen Kerzen."""
     c = candles[:-1]
     if len(c) < period + 1:
         return None
@@ -37,8 +37,7 @@ def ceil_step(x, step):
 
 
 def target_lots(r, spec, cost, left):
-    """Prop-Lots, deren TP (netto, nach Kommission und ggf. vor dem TP abgeschnitten) den Rest bis zum Profit-Ziel
-    plus Puffer bringt. Aufgerundet, damit der TP sicher reicht. None = kein Ziel-Deckel."""
+    """Prop-Lots, deren TP gerade den Rest bis zum Profit-Ziel (plus Puffer) bringt."""
     if not r.get("target_cap_enabled") or left <= 0:
         return None
     per_lot = vpu(spec) * (r["sl_distance"] - cost["prop_tp_cut"]) - r["commission_per_lot"]
@@ -61,8 +60,7 @@ def bracket(side, price, dist, digits):
 
 
 def exit_fee(entry_fee, rt_per_lot, volume):
-    """Erwartete Exit-Kommission (negativ). Bekannte Entry-Kommission wird von der Round-Trip-Kommission
-    abgezogen; so stimmt es auch bei Brokern, die alles beim Öffnen oder alles beim Schließen berechnen."""
+    """Erwartete Exit-Kommission (negativ)."""
     if entry_fee is None:
         return -rt_per_lot / 2 * volume
     return min(0.0, -rt_per_lot * volume - entry_fee)
@@ -77,7 +75,7 @@ def open_exposure(positions, specs, buffer_pct=0.0, rt_per_lot=0.0, entry_fees=N
             continue
         d = 1 if p["side"] == "buy" else -1
         v = vpu(specs[p["symbol"]]) * p["volume"]
-        # Entry-Kommission ist schon realisiert, offen ist nur noch der Exit
+        # Entry-Kommission ist schon bezahlt
         fee = exit_fee((entry_fees or {}).get(p["ticket"]), rt_per_lot, p["volume"])
         risk += (p["price_open"] - p["sl"]) * d * v * (1 + buffer_pct / 100) - fee
         reward += (p["tp"] - p["price_open"]) * d * v + fee
@@ -85,11 +83,7 @@ def open_exposure(positions, specs, buffer_pct=0.0, rt_per_lot=0.0, entry_fees=N
 
 
 def rooms(r, realized, exp, balance, max_loss_level=None):
-    """Verlustseite gegen den Daily Drawdown, Gewinnseite gegen die Consistency Rule.
-    max_loss_level: Kontostand, ab dem der Max Loss verletzt ist (statisch: Startkapital − Max Loss,
-    EOD trailing: höchster Tagesend-Stand × (1 − Max-Loss-%)).
-    safety_pct: Sicherheitspuffer in % des jeweiligen Limits. Gerechnet wird gegen die verkleinerten Limits,
-    damit Slippage, Kommission und Rundung nie bis an die echte Grenze reichen."""
+    """Spielräume gegen Daily DD, Consistency Rule und Max Loss."""
     keep = 1 - r.get("safety_pct", 0.0) / 100
     dd, cons = r["daily_drawdown"] * keep, consistency_limit(r) * keep
     pnl_total = balance - r["initial_balance"]
@@ -105,12 +99,12 @@ def rooms(r, realized, exp, balance, max_loss_level=None):
             "dd_room": loss_room, "consistency_room": profit_room,
             "max_loss_room": balance - max_loss_level - exp["risk"], "max_loss_level": max_loss_level,
             "pnl_total": pnl_total, "target_progress": pnl_total / r["profit_target"],
-            # Rest bis zum Profit-Ziel, offene TP-Chancen schon abgezogen
+            # Rest bis zum Profit-Ziel
             "target_left": r["profit_target"] - pnl_total - exp["reward"]}
 
 
 def position_size(r, spec, price, rm, free_margin, margin_per_lot, extra_caps=None):
-    """Prop-Lots. Margin pro Lot kommt vom Broker (order_calc_margin), damit gilt der echte Hebel des Symbols."""
+    """Prop-Lots nach dem kleinsten Spielraum."""
     unit = vpu(spec)
     fee = r["commission_per_lot"]
     gross = r["sl_distance"] * unit
@@ -124,7 +118,7 @@ def position_size(r, spec, price, rm, free_margin, margin_per_lot, extra_caps=No
         "Max Loss": max(rm["max_loss_room"], 0) * f / per_lot_risk,
         "Margin Prop-Konto": max(free_margin, 0) * use / margin_per_lot if margin_per_lot > 0 else 0.0,
         "Max-Volumen des Symbols": spec["vol_max"],
-        # Max. Risiko pro Trade (z. B. 1,5 % vom Startkapital): Kursverlust am SL + Kommission
+        # Max. Risiko pro Trade
         **({"Max. Risiko pro Trade": r["max_risk_pct"] / 100 * r["initial_balance"] / (gross + fee)}
            if r["max_risk_enabled"] and gross + fee > 0 else {}),
         **({"Max. Lots Prop": r["max_lots"]} if r.get("max_lots", 0) > 0 else {}),
@@ -140,14 +134,7 @@ def position_size(r, spec, price, rm, free_margin, margin_per_lot, extra_caps=No
 
 
 def costs(r, spec_p, spec_l, spread_p, spread_l):
-    """Kosten eines Hedges in Preiseinheiten: beide Spreads + beide Kommissionen (je Lot in Preis umgerechnet).
-
-    S = (Spread Prop + Spread Live) / 2. Gespiegelt liegen Live-TP/-SL exakt auf Prop-SL/-TP.
-    Prop-SL: Prop löst zuerst aus (Ask bzw. Bid erreicht das Level vor der Gegenseite), Live wird zum Markt
-    geschlossen und gewinnt d − 2S. Prop-TP: der Live-SL löst um S früher aus, Live verliert d + S, Prop wird
-    vor seinem TP geschlossen und bekommt d − S.
-    Ungespiegelt (±d um den eigenen Fill): Prop-SL wie oben; bei Prop-TP trifft zuerst der Live-SL (Verlust d),
-    Prop bekommt nur d − 2S."""
+    """Spreads + Kommissionen eines Hedges in Preiseinheiten, dazu Live-Gewinn/-Verlust je Ausgang."""
     s = (spread_p + spread_l) / 2
     total = 2 * s + r["commission_per_lot"] / vpu(spec_p) + r["commission_live_per_lot"] / vpu(spec_l)
     d = r["sl_distance"]
@@ -159,8 +146,7 @@ def costs(r, spec_p, spec_l, spread_p, spread_l):
 
 
 def hedge_outcomes(lots, spec_p, spec_l, r, cost, fx=1.0):
-    """Netto-Ergebnisse pro Hedge in Prop-Währung: Prop-Verlust bei SL, Prop-Gewinn bei TP, Live-Gewinn bzw.
-    -Verlust pro Live-Lot (inkl. Spread und Kommissionen)."""
+    """Prop-Verlust/-Gewinn und Live-Ergebnis pro Lot, in Prop-Währung."""
     up, ul = vpu(spec_p), vpu(spec_l)
     d = r["sl_distance"]
     return {"prop_loss": lots * (up * d + r["commission_per_lot"]),
@@ -170,15 +156,7 @@ def hedge_outcomes(lots, spec_p, spec_l, r, cost, fx=1.0):
 
 
 def mse_lots(o, ratio, prop_sum=0.0, live_sum=0.0, p_sl=0.5):
-    """Live-Lots, die den erwarteten quadratischen Fehler der kumulierten Hedge Ratio nach diesem Hedge minimieren.
-
-    Fehler je Szenario: Ratio danach − Ziel = −(Live + Ratio × Prop) / Prop, beides kumuliert. Mit
-    e = Live + Ratio × Prop (Abweichung in Geld) und Gewicht w = 1 / Prop² ist das ein gewichtetes
-    Kleinste-Quadrate-Problem in L mit geschlossener Lösung:
-        SL: e_SL = D + L·g − Ratio·PL      TP: e_TP = D − L·c + Ratio·PG
-        L* = [p·w_SL·g·(Ratio·PL − D) + (1−p)·w_TP·c·(D + Ratio·PG)] / [p·w_SL·g² + (1−p)·w_TP·c²]
-    Prop nach dem Szenario wird nach unten auf die Größe dieses Hedges begrenzt, sonst explodiert das Gewicht,
-    wenn der kumulierte Prop-P&L zufällig nahe 0 landet."""
+    """Live-Lots mit kleinstem quadratischen Fehler der kumulierten Ratio über SL und TP."""
     g, c, pl, pg = o["live_gain"], o["live_loss"], o["prop_loss"], o["prop_gain"]
     if g <= 0 or c <= 0 or pl <= 0:
         return 0.0
@@ -191,9 +169,7 @@ def mse_lots(o, ratio, prop_sum=0.0, live_sum=0.0, p_sl=0.5):
 
 
 def trade_fees(lots, hedge_lots, spec_p, spec_l, r, cost, fx=1.0):
-    """Erwartete Kosten eines Hedges in Prop-Währung, aufgeteilt wie im Simulator (f_E Prop, f_L Live).
-    Live trägt beide Spreads (gewinnt d − Kosten, verliert d + Kosten); ohne Spiegeln je Ausgang anders, daher
-    der Mittelwert. Prop: Kommission plus der Teil des TP, der ungespiegelt vor dem Ziel abgeschnitten wird."""
+    """Kosten pro Hedge für den Simulator (Prop, Live)."""
     d = r["sl_distance"]
     spread_l = ((d - cost["live_win"]) + (cost["live_loss"] - d)) / 2
     f_l = hedge_lots * (vpu(spec_l) * spread_l + r["commission_live_per_lot"]) * fx
@@ -202,15 +178,7 @@ def trade_fees(lots, hedge_lots, spec_p, spec_l, r, cost, fx=1.0):
 
 
 def hedge_volume(lots, spec_p, spec_l, r, cost, track=None, fx=1.0):
-    """Live-Lots je nach hedge_mode. Rückgabe: (Lots, Lots ohne Ausgleich).
-
-    fee: Live bewegt sich mit dem Kurs genau Ratio × so viel wie Prop (reines Volumenverhältnis). Spread und
-         Kommissionen sind eine feste Gebühr pro Trade auf beiden Ausgängen, wie im Simulator (f_E, f_L); es wird
-         nichts nachgeholt, daher kein Ausgleich und keine Verstärkung auf dem Pass-Pfad.
-    sl:  Bei Prop-SL ist der Live-Gewinn netto genau Ratio × Prop-Verlust netto; alle Kosten landen auf dem
-         Pass-Pfad. Der Ausgleich holt die bisherige Abweichung im SL-Fall nach (begrenzt auf ±max %).
-    mse: Kleinster mittlerer quadratischer Fehler der (kumulierten) Ratio über Prop-SL und Prop-TP.
-    fx = Wert von 1 Einheit Live-Kontowährung in Prop-Kontowährung."""
+    """Live-Lots je nach hedge_mode (fee, sl, mse). Rückgabe: (Lots, Lots ohne Ausgleich)."""
     ratio = r["hedge_ratio"]
     if lots <= 0 or ratio <= 0:
         return 0.0, 0.0
@@ -239,9 +207,27 @@ def hedge_volume(lots, spec_p, spec_l, r, cost, track=None, fx=1.0):
     return to_lots(target), to_lots(base)
 
 
+def align_lots(lots, spec_p, spec_l, ratio, fx=1.0, tol=0.01, tries=20, max_cut=0.10):
+    """Prop-Lots leicht verkleinern, damit die Live-Lots die Ratio genau treffen."""
+    k = vpu(spec_l) * fx / vpu(spec_p)  # Live-Lots × k = gleiche $-Bewegung
+    if lots <= 0 or ratio <= 0 or k <= 0:
+        return None
+    step_l = spec_l["vol_step"]
+    n = math.floor(ratio * lots / k / step_l + 1e-9)
+    for i in range(n, max(n - tries, 0), -1):
+        ll = round(i * step_l, decimals(step_l))
+        if ll < spec_l["vol_min"] - 1e-12:
+            break
+        lp = min(round_step(ll * k / ratio, spec_p["vol_step"]), lots)
+        if lp < lots * (1 - max_cut) - 1e-12:
+            break
+        if lp >= spec_p["vol_min"] - 1e-12 and abs(ll * k / lp / ratio - 1) <= tol:
+            return lp, ll
+    return None
+
+
 def margin_check(acc, required, worst_loss):
-    """Margin-Level im schlechtesten Fall: neue Position offen, alle Stops kurz vor dem Auslösen.
-    Schwelle ist das höhere von Margin-Call- und Stop-Out-Level des Brokers."""
+    """Margin-Level im schlechtesten Fall, alle Stops kurz vor dem Auslösen."""
     used = acc.get("margin", 0.0) + required
     eq = acc["equity"] - worst_loss
     so_mode = acc.get("margin_so_mode", 0)

@@ -425,6 +425,7 @@ body:not(.two-step) .only2{display:none!important}
           <label title="Maximales Risiko am Prop-SL (Kursverlust + Kommission) in % vom Startkapital">Max. Risiko/Trade %<input name="max_risk_pct" type="number" step="any" min="0.01" required></label>
           <label title="Höchstens so viel % der freien Margin darf ein neuer Hedge je Konto belegen">Max. Margin-Nutzung %<input name="margin_max_use_pct" type="number" step="any" min="1" max="100" required></label>
           <label title="Zuschlag aufs SL-Risiko für Slippage">Slippage-Puffer %<input name="buffer_pct" type="number" step="any" required></label>
+          <label class="chk" title="Live handelt nur in festen Lot-Schritten (z. B. 0,1). Die App verkleinert die Prop-Lots um höchstens 10 %, bis die Live-Lots die Hedge Ratio auf 1 % genau treffen; geht das nicht, werden die Live-Lots wie bisher gerundet (nur Modus „Kosten als Gebühr“)."><input name="align_lots" type="checkbox">Prop-Lots an Live-Schritte anpassen</label>
           <label class="chk" title="Wenn der Rest bis zum Profit-Ziel kleiner ist als ein normaler TP, wird die Position nur so groß, dass der TP das Ziel gerade erreicht. Weniger Risiko und Kosten auf dem letzten Trade. Ist das Ziel erreicht, sind neue Hedges gesperrt."><input name="target_cap_enabled" type="checkbox">Vor dem Profit-Ziel nur bis zum Ziel traden</label>
           <label title="Aufschlag auf den Rest bis zum Ziel. Kommission und Spread sind schon eingerechnet; der Puffer fängt Slippage ab: Beim Spiegeln löst der Live-SL zuerst aus und die App schließt Prop erst danach zum Marktpreis (bis ca. 1–2 s). 15 % deckt bei 12 Pips Abstand rund 1,6 Pips Slippage. Zu viel Gewinn schadet nicht, knapp verfehlt kostet einen weiteren ganzen Trade.">Ziel-Puffer %<input name="target_buffer_pct" type="number" step="any" min="0" required></label>
           <label title="Gegen einseitiges Wetten">Richtung<select name="direction_mode"><option value="alternate">abwechselnd</option><option value="random">immer 50/50</option></select></label>
@@ -554,7 +555,7 @@ body:not(.two-step) .only2{display:none!important}
     <div class="sgroup">
       <h3>Optimierung</h3>
       <div class="sgrid">
-        <label>Ziel<select name="metric"><option value="sortino">Sortino</option><option value="ev">Erwartungswert</option><option value="roi">ROI auf Kapital</option></select></label>
+        <label>Ziel<select name="metric"><option value="sortino">Sortino</option><option value="ev">Erwartungswert</option><option value="roi">ROI auf Kapital</option><option value="worst" title="Maximiert den schlechtesten Pfad (Eval verloren, Payout, Funded verloren). Die Pfade rücken zusammen; ist das Minimum > 0, enden alle Ausgänge im Plus.">Ausgeglichen (alle Pfade)</option></select></label>
         <label>Raster<select name="step"><option value="0.05">0,05</option><option value="0.025">0,025</option><option value="0.01">0,01</option></select></label>
         <label title="Für EOD trailing: nach so vielen Trades endet ein Handelstag">Trades pro Tag<input name="trades_per_day" type="number" step="1" min="1"></label>
         <label title="Simulierte Pfade bei EOD trailing (mehr = genauer, langsamer)">MC-Pfade<input name="mc_paths" type="number" step="1000" min="1000" max="200000"></label>
@@ -662,7 +663,7 @@ const chart = LightweightCharts.createChart($('chart'), {
   timeScale: {borderColor: '#232A35', timeVisible: true, secondsVisible: false},
   crosshair: {mode: LightweightCharts.CrosshairMode.Normal}
 });
-// Preisbereich, der zusätzlich zu den Kerzen sichtbar bleiben soll (ATR-Linien)
+// ATR-Linien im sichtbaren Bereich halten
 let keepVisible = null;
 const candles = chart.addCandlestickSeries({
   upColor: C.pos, downColor: C.neg, borderVisible: false, wickUpColor: C.pos, wickDownColor: C.neg,
@@ -736,7 +737,7 @@ function drawLines(s) {
   }
   keepVisible = null;
   if (s.atr && s.prop.tick) {
-    // Wo SL/TP bei ATR-Abstand lägen (Richtung offen, daher beide Seiten)
+    // ATR-Abstand nach oben und unten
     const mid = (s.prop.tick.bid + s.prop.tick.ask) / 2, d = s.atr.distance;
     keepVisible = [mid - d, mid + d];
     const st = LightweightCharts.LineStyle.LargeDashed, col = s.rules.atr_enabled ? C.dim : C.muted;
@@ -1052,9 +1053,7 @@ async function enter() {
   }
 }
 
-// Das Formular zeigt immer den aktuellen Server-Stand, außer während man darin tippt (rulesDirty).
-// Gespeichert wird: aktueller Server-Stand + nur die Formularwerte (beim Absenden) + der Patch.
-// So überschreibt ein altes Formular nie automatisch gelernte Werte (z. B. Kommission).
+// Formular zeigt den Server-Stand, außer beim Tippen; gespeichert wird Server-Stand + Änderungen
 let rulesDirty = false;
 function readRulesForm() {
   const out = {};
@@ -1096,7 +1095,7 @@ async function init() {
 
 $('rulesForm').addEventListener('submit', e => { e.preventDefault(); saveRules({}, true); });
 $('rulesForm').addEventListener('input', e => {
-  // Checkboxen und Auswahlfelder sofort speichern, Zahlen erst mit „Speichern“
+  // Checkboxen/Auswahl sofort, Zahlen erst mit „Speichern“
   if (e.target.type === 'checkbox' || e.target.tagName === 'SELECT') return;
   rulesDirty = true;
   $('rulesSave').classList.add('dirty');
@@ -1107,7 +1106,7 @@ $('rulesForm').addEventListener('change', e => {
   saveRules({[el.name]: el.type === 'checkbox' ? el.checked : el.value});
 });
 $('rulesBox').addEventListener('toggle', () => {
-  // Zuklappen verwirft ungespeicherte Änderungen, damit das Formular wieder den Server-Stand zeigt
+  // Zuklappen verwirft ungespeicherte Änderungen
   if (!$('rulesBox').open) { rulesDirty = false; $('rulesSave').classList.remove('dirty'); if (st) fillRulesForm(st.rules); }
 });
 $('ratioReset').addEventListener('click', async () => {
@@ -1406,7 +1405,7 @@ function drawHeat(res) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   const ax = res.axis, n = ax.length, pw = w - HM.l - HM.r, ph = h - HM.t - HM.b, cw = pw / n, ch = ph / n;
-  // Farbe nach Rang statt linear: die Sortino-Ratio steigt am Optimum sehr steil an, linear wäre fast alles dunkel
+  // Farbe nach Rang, linear wäre fast alles dunkel
   const vals = res.grid.flat().filter(v => v !== null && isFinite(v)).sort((a, b) => a - b);
   const lo = vals[0], hi = vals[vals.length - 1];
   const rank = v => { let a = 0, b = vals.length - 1; while (a < b) { const m = (a + b) >> 1; if (vals[m] < v) a = m + 1; else b = m; } return vals.length > 1 ? a / (vals.length - 1) : 1; };
@@ -1541,7 +1540,7 @@ function renderSim() {
   const res = simState.res;
   if (!res) return;
   const m = res.selected, b = res.best, afterEval = res.mode === 'funded' && simState.fStatus === '1';
-  const metricName = {sortino: 'Sortino', ev: 'Erwartungswert', roi: 'ROI'}[res.metric];
+  const metricName = {sortino: 'Sortino', ev: 'Erwartungswert', roi: 'ROI', worst: 'Schlechtester Pfad'}[res.metric];
   const kpi = (label, val, hl = false, extra = '') => `<div class="kpi${hl ? ' hl' : ''}"><small>${label}</small><b>${val}</b>${extra}</div>`;
   const isOpt = res.mode !== 'custom';
   $('simKpis').innerHTML = [
@@ -1551,6 +1550,7 @@ function renderSim() {
     kpi('Erwartungswert', `<span class="${sgn(m.ev)}">${money(m.ev, 2)}</span>`),
     kpi('Sortino', m.sortino === null ? (m.ev > 0 ? '∞' : '–') : nf(m.sortino, 2),
       false, res.mode === 'custom' && b.sortino !== null ? `<em>opt. ${nf(b.sortino, 2)}</em>` : ''),
+    kpi('Schlechtester Pfad', `<span class="${sgn(m.worst)}">${money(m.worst, 0)}</span>`, res.metric === 'worst'),
     kpi('Kapitalbedarf Live', money(m.capital), false, `<em title="Tiefster laufender Stand auf dem Payout-Pfad (Π_min)">Π<sub>min</sub></em>`),
     kpi('ROI auf Kapital', m.roi === null ? '–' : pctTxt(m.roi)),
     `<div class="kpi" title="So viel % der erreichten Payouts müssen ausgezahlt werden, damit der EV ≥ 0 ist"><small>Breakeven-Auszahlung</small><b>${m.q_star === null ? '–' : (m.q_star <= 0 ? '0 %' : pctTxt(m.q_star))}</b></div>`,
@@ -1583,7 +1583,10 @@ function renderSim() {
   const notes = [...(res.notes || [])];
   if (res.mode === 'funded')
     notes.push('In der Funded-Phase ändert h_F den Erwartungswert kaum (fairer Random Walk, nur Gebühren). h_F verteilt das Ergebnis zwischen Payout und Funded-Verlust; optimal ist, wo die Pfade am engsten zusammenliegen.');
-  if (m.ev <= 0) notes.push('Erwartungswert ≤ 0: optimiert wird auf kleinste Abwärtsstreuung statt Sortino.');
+  if (res.metric === 'worst') notes.push(m.worst > 0
+    ? 'Ausgeglichen: Der schlechteste Pfad ist maximiert, alle Ausgänge enden im Plus („Payout verweigert“ zählt nicht, der hängt an q).'
+    : 'Ausgeglichen: Es gibt keine Kombination, bei der alle Pfade im Plus enden. Gezeigt ist der kleinste mögliche Verlust im schlechtesten Pfad.');
+  else if (m.ev <= 0) notes.push('Erwartungswert ≤ 0: optimiert wird auf kleinste Abwärtsstreuung statt Sortino.');
   if (res.params.r < res.params.r_requested - 1e-12)
     notes.push(`Risiko pro Trade auf ${nf(res.params.r * 100, 2)} % gedeckelt (statt ${nf(res.params.r_requested * 100, 2)} %): ${nf(m.n_E, 1)} statt ${nf(m.n_E * (res.params.r / res.params.r_requested) ** 2, 1)} erwartete Eval-Trades.`);
   if (res.mc) notes.push(`EOD trailing: Monte-Carlo mit ${nf(res.params.mc_paths, 0)} Pfaden und ${res.params.trades_per_day} Trades pro Tag; Pfad-Werte sind Durchschnitte.`);

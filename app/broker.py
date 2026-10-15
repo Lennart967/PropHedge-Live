@@ -169,7 +169,7 @@ class MT5Handlers:
         return {"found": False}
 
     def deals_since(self, ts_from):
-        """Alle Buchungen (Trades, Kommission, Swap, Ein-/Auszahlungen) seit ts_from – für Tagesend-Stände."""
+        """Alle Buchungen seit ts_from."""
         deals = self.mt5.history_deals_get(int(ts_from), int(time.time()) + 3 * 86400) or []
         return [{"time": int(d.time), "amount": float(d.profit + d.commission + d.swap + getattr(d, "fee", 0.0))}
                 for d in deals]
@@ -192,7 +192,7 @@ def _worker(conn, cfg, deviation):
     kw = {"timeout": 60000, "portable": bool(cfg.get("portable", False))}
     if cfg.get("password"):
         kw.update(login=int(cfg["login"]), password=cfg["password"], server=cfg["server"])
-    # Ohne Passwort: an das bereits eingeloggte Terminal hängen, Login-Nummer wird unten geprüft
+    # ohne Passwort ans eingeloggte Terminal hängen
     ok = mt5.initialize(cfg["terminal_path"], **kw)
     if not ok:
         conn.send((None, False, str(mt5.last_error())))
@@ -298,7 +298,7 @@ class MockMarket:
 
 
 class MockStore:
-    """Persistiert den Mock-Zustand in der SQLite-DB, damit Balance und realisierter P&L einen Neustart überleben."""
+    """Mock-Zustand in der DB."""
 
     def __init__(self, path):
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=10)

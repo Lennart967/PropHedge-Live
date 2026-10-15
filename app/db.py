@@ -10,16 +10,17 @@ DEFAULT_RULES = {
     "initial_balance": 50000.0,
     "hedge_ratio": 0.5,
     "sl_distance": 50.0,
-    "atr_enabled": False,        # SL/TP-Abstand = ATR × Faktor statt fester Abstand
+    "atr_enabled": False,        # Abstand aus ATR
     "atr_timeframe": "H1",
     "atr_period": 14,
     "atr_mult": 2.0,
-    "target_cap_enabled": True,  # kurz vor dem Profit-Ziel nur so groß, dass der TP das Ziel gerade erreicht
-    "target_buffer_pct": 15.0,   # Aufschlag auf den Rest bis zum Ziel (Slippage beim Schließen von Prop)
-    "max_lots": 0.0,             # Obergrenze Prop-Lots, 0 = aus
+    "target_cap_enabled": True,  # Größe vor dem Profit-Ziel begrenzen
+    "target_buffer_pct": 15.0,   # Aufschlag auf den Rest bis zum Ziel
+    "max_lots": 0.0,
+    "align_lots": True,          # Prop-Lots an Live-Schritte anpassen
     "risk_pct": 100.0,
     "buffer_pct": 5.0,
-    "safety_pct": 5.0,           # Sicherheitspuffer: so viel % vor DD, Consistency und Max Loss aufhören
+    "safety_pct": 5.0,           # Abstand zu den echten Limits in %
     "reset_hour": 0,
     "auto_close_orphan": True,
     "eod_enabled": True,
@@ -31,7 +32,7 @@ DEFAULT_RULES = {
     "commission_live_per_lot": 0.0,
     "cost_warn_pct": 10.0,
     "cost_max_pct": 20.0,
-    "hedge_mode": "fee",         # fee: Kosten als Gebühr wie im Simulator | sl: Prop-SL exakt | mse
+    "hedge_mode": "fee",         # fee | sl | mse
     "ratio_correction": True,
     "ratio_scope": "challenge",
     "ratio_correction_max_pct": 50.0,
@@ -45,7 +46,7 @@ DEFAULT_RULES = {
     "weekend_block_min": 60,
     "max_risk_enabled": True,
     "max_risk_pct": 1.5,
-    "direction_mode": "alternate",  # alternate: 1. zufällig, 2. Gegenrichtung, dann zufällig | random
+    "direction_mode": "alternate",  # alternate | random
 }
 
 SCHEMA = """
@@ -114,7 +115,7 @@ class DB:
             stored["consistency_pct"] = stored["consistency_limit"] / stored.get(
                 "profit_target", DEFAULT_RULES["profit_target"]) * 100
         stored.pop("consistency_limit", None)
-        stored.pop("leverage", None)  # kommt jetzt vom Broker (order_calc_margin)
+        stored.pop("leverage", None)  # Hebel kommt vom Broker
         return {**DEFAULT_RULES, **stored}
 
     def set_rules(self, rules):

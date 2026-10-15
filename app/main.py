@@ -36,6 +36,7 @@ class Rules(BaseModel):
     atr_mult: float = Field(default=2.0, gt=0, le=20)
     max_lots: float = Field(default=0.0, ge=0)
     target_cap_enabled: bool = True
+    align_lots: bool = True
     target_buffer_pct: float = Field(default=15.0, ge=0, le=100)
     risk_pct: float = Field(gt=0, le=100)
     buffer_pct: float = Field(ge=0, le=100)
@@ -82,7 +83,7 @@ class SimRequest(BaseModel):
     hE2: float | None = Field(default=None, ge=0, le=2)
     step: float = Field(default=0.05, ge=0.005, le=0.25)
     hmax: float = Field(default=1.0, gt=0, le=2)
-    metric: str = Field(default="sortino", pattern="^(sortino|ev|roi)$")
+    metric: str = Field(default="sortino", pattern="^(sortino|ev|roi|worst)$")
     after_eval: bool = False
     pe_actual: float | None = None
 
@@ -139,8 +140,7 @@ async def lifespan(app):
     app.state.cfg = cfg
     app.state.engine = HedgeEngine(cfg, prop, live, db)
     app.state.clients = set()
-    # Simulator in eigenem Prozess: Monte-Carlo kann Sekunden dauern und darf die Trading-Schleifen
-    # (Gegenseite schließen, NY-/Wochenend-Close, Kurse) nicht blockieren
+    # eigener Prozess, damit lange Rechnungen den Handel nicht blockieren
     app.state.sim_pool = ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
     app.state.sim_lock = asyncio.Lock()
     app.state.sim_seq = 0
@@ -183,7 +183,7 @@ async def sim(req: SimRequest):
     app.state.sim_seq += 1
     mine = app.state.sim_seq
     async with app.state.sim_lock:
-        if mine != app.state.sim_seq:  # während des Wartens kam eine neuere Anfrage: diese verfällt
+        if mine != app.state.sim_seq:  # neuere Anfrage wartet schon
             raise HTTPException(409, "Überholt von einer neueren Berechnung")
         job = functools.partial(simulator.run, req.params, req.mode, req.hE, req.hF, req.step, req.hmax,
                                 req.metric, req.after_eval, req.pe_actual, req.hE2)
@@ -222,7 +222,7 @@ async def ratio_reset():
     st = eng.last_state if eng.last_state and "server_time" in eng.last_state else await eng.state()
     since = ts_iso(st["server_time"])
     eng.db.set_setting("ratio_since", since)
-    # Startpunkt für den EOD-Trailing-Max-Loss: Tagesend-Stände zählen erst ab der neuen Challenge
+    # Startpunkt für EOD-Trailing
     eng.db.set_setting("challenge_start_ts", int(st["server_time"]))
     eng.db.set_setting("challenge_trade_id", eng.db.next_trade_id())  # für die Richtungsfolge
     eng.reset_account_calibration()
