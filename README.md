@@ -14,8 +14,6 @@ Dazu ein Simulator für die Wahl der Hedge Ratios.
    Login, Server, Symbol je Konto). Passwörter besser per `PROP_PASSWORD` / `LIVE_PASSWORD`.
 4. `python run.py` und http://127.0.0.1:8000 öffnen.
 
-`config.json` und die Datenbanken (`*.db`) sind per `.gitignore` ausgeschlossen.
-
 ## Funktionen
 
 - **Positionsgröße:** kleinster Spielraum aus Daily Drawdown, Consistency Rule und Max Loss (statisch oder EOD
